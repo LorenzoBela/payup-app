@@ -3,45 +3,86 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { CheckCircle, Clock } from "lucide-react";
+import { useState, useEffect } from "react";
+import { getTeamSettlements, markSettlementAsPaid } from "@/app/actions/expenses";
+import { toast } from "sonner";
 
 interface SettlementsListProps {
-  userId: string;
+  teamId: string;
+  refreshKey?: number;
 }
 
-export function SettlementsList({ userId }: SettlementsListProps) {
-  // TODO: Fetch real data from API
-  const settlements = [
-    {
-      id: "1",
-      expense_description: "Team lunch meeting",
-      owed_by: "You",
-      owed_to: "Jane Smith",
-      amount: 27.42,
-      status: "pending" as const,
-    },
-    {
-      id: "2",
-      expense_description: "Office supplies",
-      owed_by: "John Smith",
-      owed_to: "You",
-      amount: 10.67,
-      status: "pending" as const,
-    },
-    {
-      id: "3",
-      expense_description: "Printing thesis drafts",
-      owed_by: "You",
-      owed_to: "John Doe",
-      amount: 15.17,
-      status: "paid" as const,
-    },
-  ];
+interface Settlement {
+  id: string;
+  expense_description: string;
+  owed_by: string;
+  owed_to: string;
+  amount: number;
+  status: string;
+  isCurrentUserOwing: boolean;
+  isCurrentUserOwed: boolean;
+}
+
+export function SettlementsList({ teamId, refreshKey }: SettlementsListProps) {
+  const [isLoading, setIsLoading] = useState(true);
+  const [settlements, setSettlements] = useState<Settlement[]>([]);
+  const [markingId, setMarkingId] = useState<string | null>(null);
+
+  const fetchSettlements = async () => {
+    setIsLoading(true);
+    try {
+      const data = await getTeamSettlements(teamId);
+      setSettlements(data as Settlement[]);
+    } catch (error) {
+      console.error("Failed to fetch settlements:", error);
+      toast.error("Failed to load settlements");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (teamId) {
+      fetchSettlements();
+    }
+  }, [teamId, refreshKey]);
 
   const handleMarkAsPaid = async (settlementId: string) => {
-    // TODO: Implement API call
-    console.log("Mark as paid:", settlementId);
+    setMarkingId(settlementId);
+    try {
+      const result = await markSettlementAsPaid(settlementId);
+      if (result.error) {
+        toast.error(result.error);
+      } else {
+        toast.success("Marked as paid!");
+        fetchSettlements();
+      }
+    } catch (error) {
+      toast.error("Failed to mark as paid");
+    } finally {
+      setMarkingId(null);
+    }
   };
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Settlements</CardTitle>
+          <CardDescription>Who owes whom</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {[...Array(2)].map((_, i) => (
+            <div key={i} className="p-4 border border-border rounded-lg">
+              <Skeleton className="h-16 w-full" />
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>
@@ -64,7 +105,7 @@ export function SettlementsList({ userId }: SettlementsListProps) {
               <div className="flex items-start justify-between">
                 <div className="space-y-1">
                   <p className="text-sm font-medium">
-                    {settlement.owed_by === "You" ? (
+                    {settlement.isCurrentUserOwing ? (
                       <>
                         You owe <span className="text-primary">{settlement.owed_to}</span>
                       </>
@@ -94,17 +135,18 @@ export function SettlementsList({ userId }: SettlementsListProps) {
                   {settlement.status}
                 </Badge>
               </div>
-              
+
               <div className="flex items-center justify-between">
                 <span className="text-lg font-bold">
-                  ${settlement.amount.toFixed(2)}
+                  ₱{settlement.amount.toFixed(2)}
                 </span>
-                {settlement.status === "pending" && settlement.owed_by === "You" && (
+                {settlement.status === "pending" && settlement.isCurrentUserOwing && (
                   <Button
                     size="sm"
                     onClick={() => handleMarkAsPaid(settlement.id)}
+                    disabled={markingId === settlement.id}
                   >
-                    Mark as Paid
+                    {markingId === settlement.id ? "Marking..." : "Mark as Paid"}
                   </Button>
                 )}
               </div>
@@ -115,4 +157,5 @@ export function SettlementsList({ userId }: SettlementsListProps) {
     </Card>
   );
 }
+
 

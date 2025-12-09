@@ -5,38 +5,57 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { DollarSign, Users, Plus, Copy, Check } from "lucide-react";
+import { DollarSign, Users, Plus, Copy, Check, Loader2 } from "lucide-react";
 import { useState } from "react";
+import { createTeam, joinTeam } from "@/app/actions/teams";
+import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 
 export default function TeamPage() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<"create" | "join">("create");
   const [teamName, setTeamName] = useState("");
   const [teamCode, setTeamCode] = useState("");
   const [generatedCode, setGeneratedCode] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const generateCode = () => {
-    // Generate 6-character alphanumeric code
-    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // Excluding confusing characters
-    let code = "";
-    for (let i = 0; i < 6; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
+  const handleCreateTeam = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
+
+    try {
+      const result = await createTeam(teamName);
+      if (result.success && result.team) {
+        setGeneratedCode(result.team.code);
+        toast.success("Team created successfully!");
+      } else {
+        toast.error(result.error || "Failed to create team");
+      }
+    } catch (error) {
+      toast.error("An unexpected error occurred");
+    } finally {
+      setIsLoading(false);
     }
-    return code;
   };
 
-  const handleCreateTeam = (e: React.FormEvent) => {
+  const handleJoinTeam = async (e: React.FormEvent) => {
     e.preventDefault();
-    const code = generateCode();
-    setGeneratedCode(code);
-    console.log("Creating team:", teamName, "with code:", code);
-  };
+    setIsLoading(true);
 
-  const handleJoinTeam = (e: React.FormEvent) => {
-    e.preventDefault();
-    console.log("Joining team with code:", teamCode);
-    // Redirect to dashboard after validation
-    window.location.href = "/dashboard";
+    try {
+      const result = await joinTeam(teamCode);
+      if (result.success) {
+        toast.success("Joined team successfully!");
+        router.push("/dashboard");
+      } else {
+        toast.error(result.error || "Failed to join team");
+      }
+    } catch (error) {
+      toast.error("An unexpected error occurred");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const copyToClipboard = () => {
@@ -44,12 +63,12 @@ export default function TeamPage() {
       navigator.clipboard.writeText(generatedCode);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+      toast.success("Code copied to clipboard");
     }
   };
 
   const handleContinueToDashboard = () => {
-    // Save team info and redirect to dashboard
-    window.location.href = "/dashboard";
+    router.push("/dashboard");
   };
 
   return (
@@ -85,22 +104,20 @@ export default function TeamPage() {
           <div className="flex gap-4 mb-6 fade-in-up-delay-1">
             <button
               onClick={() => setActiveTab("create")}
-              className={`flex-1 py-3 px-6 rounded-lg font-semibold transition-all ${
-                activeTab === "create"
+              className={`flex-1 py-3 px-6 rounded-lg font-semibold transition-all ${activeTab === "create"
                   ? "bg-primary text-primary-foreground shadow-lg"
                   : "bg-card text-muted-foreground hover:bg-muted border-2 border-border"
-              }`}
+                }`}
             >
               <Plus className="w-5 h-5 inline-block mr-2 -mt-1" />
               Create Team
             </button>
             <button
               onClick={() => setActiveTab("join")}
-              className={`flex-1 py-3 px-6 rounded-lg font-semibold transition-all ${
-                activeTab === "join"
+              className={`flex-1 py-3 px-6 rounded-lg font-semibold transition-all ${activeTab === "join"
                   ? "bg-primary text-primary-foreground shadow-lg"
                   : "bg-card text-muted-foreground hover:bg-muted border-2 border-border"
-              }`}
+                }`}
             >
               <Users className="w-5 h-5 inline-block mr-2 -mt-1" />
               Join Team
@@ -130,6 +147,7 @@ export default function TeamPage() {
                         value={teamName}
                         onChange={(e) => setTeamName(e.target.value)}
                         required
+                        disabled={isLoading}
                         className="bg-input border-border text-foreground placeholder:text-muted-foreground focus:ring-primary"
                       />
                       <p className="text-sm text-muted-foreground">
@@ -139,35 +157,45 @@ export default function TeamPage() {
 
                     <Button
                       type="submit"
-                      className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold transition-all hover:scale-105"
+                      disabled={isLoading}
+                      className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold transition-all hover:scale-105 disabled:opacity-70 disabled:cursor-not-allowed"
                     >
-                      <Plus className="w-5 h-5 mr-2" />
-                      Create Team
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                          Creating...
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="w-5 h-5 mr-2" />
+                          Create Team
+                        </>
+                      )}
                     </Button>
                   </form>
                 ) : (
                   <div className="space-y-6">
-                    <div className="text-center p-6 bg-secondary rounded-lg">
-                      <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary mb-4">
+                    <div className="text-center p-6 bg-secondary/50 rounded-lg border-2 border-primary/20">
+                      <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary mb-4 shadow-lg shadow-primary/20">
                         <Check className="w-8 h-8 text-primary-foreground" />
                       </div>
-                      <h3 className="text-xl font-bold text-secondary-foreground mb-2">
+                      <h3 className="text-xl font-bold text-foreground mb-2">
                         Team Created Successfully!
                       </h3>
-                      <p className="text-secondary-foreground/80 mb-4">
+                      <p className="text-muted-foreground mb-4">
                         Your team "{teamName}" is ready. Share this code with your members:
                       </p>
-                      <div className="bg-background/20 backdrop-blur-sm rounded-lg p-4 mb-4">
-                        <div className="text-4xl font-bold text-secondary-foreground tracking-wider mb-2 font-mono">
+                      <div className="bg-card/50 border border-border rounded-lg p-4 mb-4 backdrop-blur-sm">
+                        <div className="text-4xl font-bold text-primary tracking-wider mb-2 font-mono">
                           {generatedCode}
                         </div>
                         <button
                           onClick={copyToClipboard}
-                          className="inline-flex items-center gap-2 text-sm text-secondary-foreground/90 hover:text-secondary-foreground transition-colors"
+                          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
                         >
                           {copied ? (
                             <>
-                              <Check className="w-4 h-4" />
+                              <Check className="w-4 h-4 text-green-500" />
                               Copied!
                             </>
                           ) : (
@@ -178,7 +206,7 @@ export default function TeamPage() {
                           )}
                         </button>
                       </div>
-                      <p className="text-sm text-secondary-foreground/70">
+                      <p className="text-sm text-muted-foreground">
                         Team members can use this code to join your team
                       </p>
                     </div>
@@ -196,7 +224,7 @@ export default function TeamPage() {
                           setTeamName("");
                         }}
                         variant="outline"
-                        className="w-full border-2 border-border text-card-foreground hover:bg-muted"
+                        className="w-full border-2 border-border text-foreground hover:bg-muted"
                       >
                         Create Another Team
                       </Button>
@@ -230,7 +258,8 @@ export default function TeamPage() {
                       onChange={(e) => setTeamCode(e.target.value.toUpperCase())}
                       required
                       maxLength={6}
-                      className="bg-input border-border text-foreground placeholder:text-muted-foreground focus:ring-primary text-2xl text-center font-mono tracking-wider"
+                      disabled={isLoading}
+                      className="bg-input border-border text-foreground placeholder:text-muted-foreground focus:ring-primary text-2xl text-center font-mono tracking-wider uppercase"
                       style={{ letterSpacing: "0.5em" }}
                     />
                     <p className="text-sm text-muted-foreground">
@@ -252,10 +281,17 @@ export default function TeamPage() {
 
                   <Button
                     type="submit"
-                    disabled={teamCode.length !== 6}
+                    disabled={teamCode.length !== 6 || isLoading}
                     className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold transition-all hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                   >
-                    Join Team
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                        Joining...
+                      </>
+                    ) : (
+                      "Join Team"
+                    )}
                   </Button>
                 </form>
               </CardContent>

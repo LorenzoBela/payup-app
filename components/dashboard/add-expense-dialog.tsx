@@ -14,26 +14,21 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { toast } from "sonner";
+import { createExpense } from "@/app/actions/expenses";
 
 interface AddExpenseDialogProps {
-  userId: string;
+  teamId: string;
+  onExpenseAdded?: () => void;
 }
 
-export function AddExpenseDialog({ userId }: AddExpenseDialogProps) {
+export function AddExpenseDialog({ teamId, onExpenseAdded }: AddExpenseDialogProps) {
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     description: "",
     amount: "",
-    category: "other",
+    category: "",
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -41,12 +36,21 @@ export function AddExpenseDialog({ userId }: AddExpenseDialogProps) {
     setIsSubmitting(true);
 
     try {
-      // TODO: Implement API call
-      console.log("Add expense:", { ...formData, paid_by: userId });
-      
-      toast.success("Expense added successfully!");
-      setFormData({ description: "", amount: "", category: "other" });
-      setOpen(false);
+      const result = await createExpense({
+        description: formData.description,
+        amount: parseFloat(formData.amount),
+        category: formData.category.trim() || "General",
+        teamId,
+      });
+
+      if (result.error) {
+        toast.error(result.error);
+      } else {
+        toast.success("Expense added successfully!");
+        setFormData({ description: "", amount: "", category: "" });
+        setOpen(false);
+        onExpenseAdded?.();
+      }
     } catch (error) {
       toast.error("Failed to add expense. Please try again.");
     } finally {
@@ -70,7 +74,7 @@ export function AddExpenseDialog({ userId }: AddExpenseDialogProps) {
               Record a new group expense. It will be automatically split among all members.
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
               <Label htmlFor="description">Description</Label>
@@ -84,9 +88,9 @@ export function AddExpenseDialog({ userId }: AddExpenseDialogProps) {
                 required
               />
             </div>
-            
+
             <div className="grid gap-2">
-              <Label htmlFor="amount">Amount (USD)</Label>
+              <Label htmlFor="amount">Amount (₱)</Label>
               <Input
                 id="amount"
                 type="number"
@@ -100,28 +104,23 @@ export function AddExpenseDialog({ userId }: AddExpenseDialogProps) {
                 required
               />
             </div>
-            
+
             <div className="grid gap-2">
               <Label htmlFor="category">Category</Label>
-              <Select
+              <Input
+                id="category"
+                placeholder="e.g., Food, Transport, Supplies"
                 value={formData.category}
-                onValueChange={(value) =>
-                  setFormData({ ...formData, category: value })
+                onChange={(e) =>
+                  setFormData({ ...formData, category: e.target.value })
                 }
-              >
-                <SelectTrigger id="category">
-                  <SelectValue placeholder="Select a category" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="food">Food & Dining</SelectItem>
-                  <SelectItem value="printing">Printing</SelectItem>
-                  <SelectItem value="supplies">Supplies</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
-                </SelectContent>
-              </Select>
+              />
+              <p className="text-xs text-muted-foreground">
+                Leave blank for &quot;General&quot;
+              </p>
             </div>
           </div>
-          
+
           <DialogFooter>
             <Button
               type="button"
@@ -140,4 +139,5 @@ export function AddExpenseDialog({ userId }: AddExpenseDialogProps) {
     </Dialog>
   );
 }
+
 

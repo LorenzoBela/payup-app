@@ -4,46 +4,67 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Receipt, Edit, Trash2, Search } from "lucide-react";
+import { Receipt, Trash2, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { getTeamExpenses, deleteExpense } from "@/app/actions/expenses";
+import { toast } from "sonner";
 
 interface ExpenseListProps {
-  userId: string;
+  teamId: string;
+  refreshKey?: number;
 }
 
-export function ExpenseList({ userId }: ExpenseListProps) {
+interface Expense {
+  id: string;
+  description: string;
+  amount: number;
+  category: string;
+  paid_by_name: string;
+  created_at: Date;
+}
+
+export function ExpenseList({ teamId, refreshKey }: ExpenseListProps) {
   const [searchQuery, setSearchQuery] = useState("");
-  
-  // TODO: Fetch real data from API
-  const isLoading = false;
-  
-  const expenses = [
-    {
-      id: "1",
-      description: "Printing thesis drafts",
-      amount: 45.50,
-      category: "printing" as const,
-      paid_by: "John Doe",
-      created_at: "2025-10-01T10:30:00Z",
-    },
-    {
-      id: "2",
-      description: "Team lunch meeting",
-      amount: 82.25,
-      category: "food" as const,
-      paid_by: "Jane Smith",
-      created_at: "2025-09-28T12:15:00Z",
-    },
-    {
-      id: "3",
-      description: "Office supplies",
-      amount: 32.00,
-      category: "supplies" as const,
-      paid_by: "John Doe",
-      created_at: "2025-09-25T14:20:00Z",
-    },
-  ];
+  const [isLoading, setIsLoading] = useState(true);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const fetchExpenses = async () => {
+    setIsLoading(true);
+    try {
+      const data = await getTeamExpenses(teamId);
+      setExpenses(data as Expense[]);
+    } catch (error) {
+      console.error("Failed to fetch expenses:", error);
+      toast.error("Failed to load expenses");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (teamId) {
+      fetchExpenses();
+    }
+  }, [teamId, refreshKey]);
+
+  const handleDelete = async (expenseId: string) => {
+    setDeletingId(expenseId);
+    try {
+      const result = await deleteExpense(expenseId);
+      if (result.error) {
+        toast.error(result.error);
+      } else {
+        toast.success("Expense deleted");
+        fetchExpenses();
+      }
+    } catch (error) {
+      toast.error("Failed to delete expense");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const getCategoryColor = (category: string) => {
     const colors = {
@@ -54,6 +75,12 @@ export function ExpenseList({ userId }: ExpenseListProps) {
     };
     return colors[category as keyof typeof colors] || colors.other;
   };
+
+  const filteredExpenses = expenses.filter(
+    (expense) =>
+      expense.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      expense.paid_by_name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   if (isLoading) {
     return (
@@ -89,14 +116,14 @@ export function ExpenseList({ userId }: ExpenseListProps) {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {expenses.length === 0 ? (
+        {filteredExpenses.length === 0 ? (
           <div className="text-center py-12">
             <Receipt className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
             <p className="text-muted-foreground">No expenses yet</p>
             <p className="text-sm text-muted-foreground">Add your first expense to get started</p>
           </div>
         ) : (
-          expenses.map((expense) => (
+          filteredExpenses.map((expense) => (
             <div
               key={expense.id}
               className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-muted/50 transition-colors"
@@ -112,26 +139,28 @@ export function ExpenseList({ userId }: ExpenseListProps) {
                       {expense.category}
                     </Badge>
                     <span className="text-sm text-muted-foreground">
-                      Paid by {expense.paid_by}
+                      Paid by {expense.paid_by_name}
                     </span>
                   </div>
                 </div>
               </div>
-              
+
               <div className="flex items-center gap-4">
                 <div className="text-right">
                   <p className="text-lg font-bold text-foreground">
-                    ${expense.amount.toFixed(2)}
+                    ₱{expense.amount.toFixed(2)}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {new Date(expense.created_at).toLocaleDateString()}
                   </p>
                 </div>
                 <div className="flex gap-1">
-                  <Button variant="ghost" size="icon">
-                    <Edit className="w-4 h-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleDelete(expense.id)}
+                    disabled={deletingId === expense.id}
+                  >
                     <Trash2 className="w-4 h-4 text-destructive" />
                   </Button>
                 </div>
@@ -143,4 +172,5 @@ export function ExpenseList({ userId }: ExpenseListProps) {
     </Card>
   );
 }
+
 
