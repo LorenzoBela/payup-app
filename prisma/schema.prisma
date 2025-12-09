@@ -1,0 +1,60 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id         String    @id
+  name       String
+  email      String    
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  deleted_at DateTime?
+
+  @@map("users")
+}
+
+model Expense {
+  id          String    @id @default(uuid())
+  amount      Float
+  description String
+  paid_by     String
+  currency    String
+  category    Category
+  receipt_url String?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+  deleted_at  DateTime?
+
+  @@map("expenses")
+}
+
+model Settlement {
+  id          String    @id @default(uuid())
+  expense_id  String
+  owed_by     String
+  amount_owed Float
+  status      Status
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+  deleted_at  DateTime?
+
+  @@map("settlements")
+}
+
+enum Category {
+  food
+  printing
+  supplies
+  other
+}
+
+enum Status {
+  pending
+  paid
+}
