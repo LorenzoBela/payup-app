@@ -19,7 +19,6 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "@/components/ui/popover";
-import { Dialog, DialogTrigger } from "@/components/ui/dialog";
 
 type Team = {
     id: string;

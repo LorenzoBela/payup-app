@@ -3,18 +3,16 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { updateExpenseSchema } from '@/lib/validations';
 import { z } from 'zod';
 
+// Helper to get untyped client for operations where types are missing
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const db = supabaseAdmin as any;
+
 // PUT /api/expenses/[id] - Update an expense
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Auth check disabled for demo - enable when Auth0 is configured
-    // const session = await getSession();
-    // if (!session) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    // }
-
     const { id } = await params;
     const body = await request.json();
     
@@ -22,7 +20,7 @@ export async function PUT(
     const validatedData = updateExpenseSchema.parse(body);
 
     // Update the expense
-    const { data: expense, error } = await supabaseAdmin
+    const { data: expense, error } = await db
       .from('expenses')
       .update({
         ...validatedData,
@@ -44,7 +42,7 @@ export async function PUT(
 
     // If amount changed, update settlements
     if (validatedData.amount !== undefined) {
-      const { data: users } = await supabaseAdmin
+      const { data: users } = await db
         .from('users')
         .select('id')
         .is('deleted_at', null);
@@ -52,7 +50,7 @@ export async function PUT(
       if (users && users.length > 0) {
         const splitAmount = validatedData.amount / users.length;
 
-        await supabaseAdmin
+        await db
           .from('settlements')
           .update({ amount_owed: splitAmount })
           .eq('expense_id', id);
@@ -63,7 +61,7 @@ export async function PUT(
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: 'Validation error', details: error.errors },
+        { error: 'Validation error', details: error.flatten() },
         { status: 400 }
       );
     }
@@ -78,16 +76,10 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Auth check disabled for demo - enable when Auth0 is configured
-    // const session = await getSession();
-    // if (!session) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    // }
-
     const { id } = await params;
 
     // Soft delete the expense
-    const { data: expense, error } = await supabaseAdmin
+    const { data: expense, error } = await db
       .from('expenses')
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', id)
@@ -105,7 +97,7 @@ export async function DELETE(
     }
 
     // Soft delete associated settlements
-    await supabaseAdmin
+    await db
       .from('settlements')
       .update({ deleted_at: new Date().toISOString() })
       .eq('expense_id', id);

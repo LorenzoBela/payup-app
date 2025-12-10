@@ -453,7 +453,7 @@ export async function getExpenseStats(teamId: string) {
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
         // Use aggregations for better performance
-        const [expenseAgg, thisMonthAgg, expenseIds, settlementCounts] = await Promise.all([
+        const [expenseAgg, thisMonthAgg, expenseIds] = await Promise.all([
             // Total and average
             prisma.expense.aggregate({
                 where: {
@@ -481,8 +481,6 @@ export async function getExpenseStats(teamId: string) {
                 },
                 select: { id: true },
             }),
-            // We'll calculate settlements after getting expense IDs
-            Promise.resolve(null),
         ]);
 
         // Get settlement counts

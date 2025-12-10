@@ -51,7 +51,7 @@ export function AddExpenseDialog({ teamId, onExpenseAdded }: AddExpenseDialogPro
         setOpen(false);
         onExpenseAdded?.();
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to add expense. Please try again.");
     } finally {
       setIsSubmitting(false);

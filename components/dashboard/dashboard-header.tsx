@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { DollarSign, LogOut, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -54,9 +55,11 @@ export function DashboardHeader({ user }: DashboardHeaderProps) {
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="rounded-full">
               {user.picture ? (
-                <img 
+                <Image 
                   src={user.picture} 
                   alt={user.name || "User"} 
+                  width={32}
+                  height={32}
                   className="w-8 h-8 rounded-full"
                 />
               ) : (

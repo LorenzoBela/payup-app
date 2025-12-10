@@ -32,7 +32,7 @@ export default function TeamPage() {
       } else {
         toast.error(result.error || "Failed to create team");
       }
-    } catch (error) {
+    } catch {
       toast.error("An unexpected error occurred");
     } finally {
       setIsLoading(false);
@@ -51,7 +51,7 @@ export default function TeamPage() {
       } else {
         toast.error(result.error || "Failed to join team");
       }
-    } catch (error) {
+    } catch {
       toast.error("An unexpected error occurred");
     } finally {
       setIsLoading(false);
@@ -183,7 +183,7 @@ export default function TeamPage() {
                         Team Created Successfully!
                       </h3>
                       <p className="text-muted-foreground mb-4">
-                        Your team "{teamName}" is ready. Share this code with your members:
+                        Your team &quot;{teamName}&quot; is ready. Share this code with your members:
                       </p>
                       <div className="bg-card/50 border border-border rounded-lg p-4 mb-4 backdrop-blur-sm">
                         <div className="text-4xl font-bold text-primary tracking-wider mb-2 font-mono">
@@ -273,7 +273,7 @@ export default function TeamPage() {
                       What happens next?
                     </h4>
                     <ul className="text-sm text-muted-foreground space-y-1 ml-6 list-disc">
-                      <li>You'll join the team immediately</li>
+                      <li>You&apos;ll join the team immediately</li>
                       <li>See all team expenses and settlements</li>
                       <li>Start adding expenses that auto-split with team members</li>
                     </ul>

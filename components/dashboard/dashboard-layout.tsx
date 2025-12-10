@@ -8,7 +8,6 @@ import { Loader2 } from "lucide-react";
 import { Sidebar, MobileSidebar } from "@/components/dashboard/sidebar";
 import { TeamSwitcher } from "@/components/team-switcher";
 import { Separator } from "@/components/ui/separator";
-import { toast } from "sonner";
 import { useTeam } from "@/components/dashboard/team-provider";
 
 interface DashboardLayoutProps {

@@ -71,7 +71,7 @@ export function SettlementsList({ teamId, refreshKey }: SettlementsListProps) {
         toast.success("Marked as paid!");
         mutate(); // Revalidate cache
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to mark as paid");
     } finally {
       setMarkingId(null);

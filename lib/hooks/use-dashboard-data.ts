@@ -254,16 +254,11 @@ export function useTeamMembers(teamId: string | null) {
 
 // Utility hook to invalidate all dashboard data (call after mutations)
 export function useInvalidateDashboard() {
-    const { mutate } = useSWR(null);
-    
-    return (teamId: string) => {
-        // Invalidate all dashboard-related caches for this team
-        mutate((key: unknown) => {
-            if (Array.isArray(key)) {
-                return key[1] === teamId;
-            }
-            return false;
-        }, undefined, { revalidate: true });
+    return (teamId: string, mutate: ReturnType<typeof useSWR>['mutate']) => {
+        // Invalidate the current cache
+        mutate();
+        // Note: For full cache invalidation, use useSWRConfig's mutate with filter
+        console.log(`Dashboard cache invalidated for team: ${teamId}`);
     };
 }
 

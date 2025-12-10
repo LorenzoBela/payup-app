@@ -2,10 +2,9 @@
 
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { DollarSign, Users, Receipt, TrendingUp, CheckCircle, Shield, ArrowRight, ChevronRight } from "lucide-react";
+import { DollarSign, Users, Receipt, TrendingUp, CheckCircle, Shield, ArrowRight } from "lucide-react";
 import { motion, useScroll, useTransform } from "framer-motion";
-import { useRef } from "react";
+import { LucideIcon } from "lucide-react";
 
 export default function Home() {
   const { scrollYProgress } = useScroll();
@@ -218,7 +217,18 @@ export default function Home() {
   );
 }
 
-function FeatureCard({ feature, index }: { feature: any, index: number }) {
+interface Feature {
+  icon: LucideIcon;
+  title: string;
+  description: string;
+}
+
+interface Step {
+  title: string;
+  description: string;
+}
+
+function FeatureCard({ feature, index }: { feature: Feature, index: number }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 40 }}
@@ -242,7 +252,7 @@ function FeatureCard({ feature, index }: { feature: any, index: number }) {
   );
 }
 
-function StepCard({ step, index }: { step: any, index: number }) {
+function StepCard({ step, index }: { step: Step, index: number }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 40 }}

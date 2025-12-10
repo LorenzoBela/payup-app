@@ -1,22 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 
+// Helper to get untyped client for operations where types are missing
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const db = supabaseAdmin as any;
+
 // POST /api/settlements/[id]/pay - Mark a settlement as paid
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Auth check disabled for demo - enable when Auth0 is configured
-    // const session = await getSession();
-    // if (!session) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    // }
-
     const { id } = await params;
 
     // Update settlement status to paid
-    const { data: settlement, error } = await supabaseAdmin
+    const { data: settlement, error } = await db
       .from('settlements')
       .update({
         status: 'paid',

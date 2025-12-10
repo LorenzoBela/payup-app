@@ -5,7 +5,6 @@ import { useTeam } from "@/components/dashboard/team-provider";
 import { getTeamSettlements } from "@/app/actions/expenses";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Loader2, FileText, CheckCircle2 } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 
 interface Receipt {
@@ -26,13 +25,18 @@ export default function ReceiptsPage() {
     useEffect(() => {
         if (selectedTeam) {
             setLoading(true);
-            getTeamSettlements(selectedTeam.id).then((data: any[]) => {
+            getTeamSettlements(selectedTeam.id).then((data) => {
+                const settlements = data.settlements || [];
                 // Filter for paid settlements
-                const paid = data
+                const paid = settlements
                     .filter((s) => s.status === "paid")
                     .map(s => ({
-                        ...s,
-                        // Ensure paid_at is a proper Date object if it comes as string
+                        id: s.id,
+                        expense_description: s.expense_description,
+                        owed_by: s.owed_by,
+                        owed_to: s.owed_to,
+                        amount: s.amount,
+                        status: s.status,
                         paid_at: s.paid_at ? new Date(s.paid_at) : null
                     }))
                     .sort((a, b) => {

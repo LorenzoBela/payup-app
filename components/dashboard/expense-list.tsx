@@ -73,7 +73,7 @@ export function ExpenseList({ teamId, refreshKey }: ExpenseListProps) {
         toast.success("Expense deleted");
         mutate(); // Revalidate cache
       }
-    } catch (error) {
+    } catch {
       toast.error("Failed to delete expense");
     } finally {
       setDeletingId(null);
@@ -210,7 +210,7 @@ export function ExpenseList({ teamId, refreshKey }: ExpenseListProps) {
                 </div>
               )}
               {!hasMore && filteredExpenses.length > 0 && !searchQuery && (
-                <p className="text-sm text-muted-foreground">You've seen all expenses</p>
+                <p className="text-sm text-muted-foreground">You&apos;ve seen all expenses</p>
               )}
             </div>
           </>

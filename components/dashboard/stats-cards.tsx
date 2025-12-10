@@ -4,11 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DollarSign, TrendingUp, Users, AlertCircle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
-interface StatsCardsProps {
-  userId: string;
-}
-
-export function StatsCards({ userId }: StatsCardsProps) {
+export function StatsCards() {
   // TODO: Fetch real data from API
   const isLoading = false;
   
@@ -47,7 +43,7 @@ export function StatsCards({ userId }: StatsCardsProps) {
         <CardContent>
           <div className="text-2xl font-bold">${stats.totalPaid.toFixed(2)}</div>
           <p className="text-xs text-muted-foreground">
-            Amount you've paid for the group
+            Amount you&apos;ve paid for the group
           </p>
         </CardContent>
       </Card>
@@ -75,7 +71,7 @@ export function StatsCards({ userId }: StatsCardsProps) {
             ${stats.netBalance.toFixed(2)}
           </div>
           <p className="text-xs text-muted-foreground">
-            You're owed this amount overall
+            You&apos;re owed this amount overall
           </p>
         </CardContent>
       </Card>

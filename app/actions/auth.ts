@@ -3,6 +3,10 @@
 import { currentUser } from "@clerk/nextjs/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
+// Helper to get untyped client for operations where types are missing
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const db = supabaseAdmin as any;
+
 export async function syncUserToSupabase() {
     try {
         const user = await currentUser();
@@ -11,7 +15,7 @@ export async function syncUserToSupabase() {
             return { error: "Not authenticated" };
         }
 
-        const { data: existingUser } = await supabaseAdmin
+        const { data: existingUser } = await db
             .from("users")
             .select("id")
             .eq("id", user.id)
@@ -19,16 +23,16 @@ export async function syncUserToSupabase() {
 
         if (!existingUser) {
             const email = user.emailAddresses.find(
-                (email) => email.id === user.primaryEmailAddressId
+                (email: { id: string; emailAddress: string }) => email.id === user.primaryEmailAddressId
             )?.emailAddress;
 
-            const { error } = await supabaseAdmin.from("users").insert({
+            const { error } = await db.from("users").insert({
                 id: user.id,
                 name: user.fullName || user.username || "Unknown", // Fallback for name
                 email: email || "",
                 updated_at: new Date().toISOString(),
                 created_at: new Date().toISOString(),
-            } as any);
+            });
 
             if (error) {
                 console.error("Error inserting user into Supabase:", error);

@@ -71,7 +71,7 @@ export default function DashboardPage() {
         await refreshTeams();
         router.replace("/dashboard");
       }
-    } catch (error) {
+    } catch {
       toast.error("An unexpected error occurred");
     } finally {
       setActionLoading(false);
@@ -92,7 +92,7 @@ export default function DashboardPage() {
         await refreshTeams();
         router.replace("/dashboard");
       }
-    } catch (error) {
+    } catch {
       toast.error("An unexpected error occurred");
     } finally {
       setActionLoading(false);

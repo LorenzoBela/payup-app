@@ -4,6 +4,10 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { expenseSchema } from '@/lib/validations';
 import { z } from 'zod';
 
+// Helper to get untyped client for operations where types are missing
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const db = supabaseAdmin as any;
+
 // GET /api/expenses - List all expenses
 export async function GET(request: NextRequest) {
   try {
@@ -14,10 +18,9 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const category = searchParams.get('category');
-    const status = searchParams.get('status');
     const filterUserId = searchParams.get('userId');
 
-    let query = supabaseAdmin
+    let query = db
       .from('expenses')
       .select(`
         *,
@@ -63,20 +66,19 @@ export async function POST(request: NextRequest) {
     const validatedData = expenseSchema.parse(body);
 
     // Get all users to split the expense
-    const { data: usersData, error: usersError } = await supabaseAdmin
+    const { data: usersData, error: usersError } = await db
       .from('users')
       .select('id')
       .is('deleted_at', null);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const users = usersData as any[];
+    const users = usersData || [];
 
-    if (usersError || !users || users.length === 0) {
+    if (usersError || users.length === 0) {
       return NextResponse.json({ error: 'No users found' }, { status: 400 });
     }
 
     // Create expense
-    const { data: expense, error: expenseError } = await supabaseAdmin
+    const { data: expense, error: expenseError } = await db
       .from('expenses')
       .insert({
         amount: validatedData.amount,
@@ -85,7 +87,7 @@ export async function POST(request: NextRequest) {
         category: validatedData.category,
         currency: validatedData.currency || 'USD',
         receipt_url: validatedData.receipt_url,
-      } as any)
+      })
       .select()
       .single();
 
@@ -95,24 +97,22 @@ export async function POST(request: NextRequest) {
     }
 
     // Calculate split amount (equal split among all users except the payer)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const createdExpense = expense as any;
-    const splitAmount = createdExpense.amount / users.length;
+    const splitAmount = expense.amount / users.length;
 
     // Create settlements for each user except the one who paid
     const settlements = users
-      .filter((user) => user.id !== createdExpense.paid_by)
-      .map((user) => ({
-        expense_id: createdExpense.id,
+      .filter((user: { id: string }) => user.id !== expense.paid_by)
+      .map((user: { id: string }) => ({
+        expense_id: expense.id,
         owed_by: user.id,
         amount_owed: splitAmount,
         status: 'pending' as const,
       }));
 
     if (settlements.length > 0) {
-      const { error: settlementsError } = await supabaseAdmin
+      const { error: settlementsError } = await db
         .from('settlements')
-        .insert(settlements as any);
+        .insert(settlements);
 
       if (settlementsError) {
         console.error('Error creating settlements:', settlementsError);
