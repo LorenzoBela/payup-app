@@ -184,3 +184,91 @@ export async function getTeamMembers(teamId: string) {
         return [];
     }
 }
+
+export async function renameTeam(teamId: string, newName: string) {
+    try {
+        const user = await currentUser();
+        if (!user) return { error: "Not authenticated" };
+
+        const member = await prisma.teamMember.findUnique({
+            where: {
+                team_id_user_id: {
+                    team_id: teamId,
+                    user_id: user.id,
+                },
+            },
+        });
+
+        if (!member || member.role !== TeamRole.ADMIN) {
+            return { error: "Unauthorized: Only admins can rename the team" };
+        }
+
+        const team = await prisma.team.update({
+            where: { id: teamId },
+            data: { name: newName },
+        });
+
+        revalidatePath("/dashboard");
+        return { success: true, team };
+    } catch (error) {
+        console.error("Error renaming team:", error);
+        return { error: "Failed to rename team" };
+    }
+}
+
+export async function removeTeamMember(teamId: string, memberId: string) {
+    try {
+        const user = await currentUser();
+        if (!user) return { error: "Not authenticated" };
+
+        // Check if requester is admin
+        const requester = await prisma.teamMember.findUnique({
+            where: {
+                team_id_user_id: {
+                    team_id: teamId,
+                    user_id: user.id,
+                },
+            },
+        });
+
+        if (!requester || requester.role !== TeamRole.ADMIN) {
+            return { error: "Unauthorized: Only admins can remove members" };
+        }
+
+        // Prevent removing yourself
+        if (memberId === user.id) {
+            return { error: "Cannot remove yourself from the team" };
+        }
+
+        // Check if the member to be removed exists in the team
+        // We find by user_id inside the team context. 
+        // Note: memberId passed here should be the user_id of the member to remove.
+        const memberToRemove = await prisma.teamMember.findUnique({
+            where: {
+                team_id_user_id: {
+                    team_id: teamId,
+                    user_id: memberId,
+                },
+            },
+        });
+
+        if (!memberToRemove) {
+            return { error: "Member not found in this team" };
+        }
+
+        await prisma.teamMember.delete({
+            where: {
+                team_id_user_id: {
+                    team_id: teamId,
+                    user_id: memberId,
+                },
+            },
+        });
+
+        revalidatePath("/dashboard");
+        return { success: true };
+    } catch (error) {
+        console.error("Error removing team member:", error);
+        return { error: "Failed to remove member" };
+    }
+}

@@ -1,11 +1,7 @@
 "use server";
 
 import { currentUser } from "@clerk/nextjs/server";
-import { supabaseAdmin } from "@/lib/supabase-admin";
-
-// Helper to get untyped client for operations where types are missing
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = supabaseAdmin as any;
+import { prisma } from "@/lib/prisma";
 
 export async function syncUserToSupabase() {
     try {
@@ -15,30 +11,23 @@ export async function syncUserToSupabase() {
             return { error: "Not authenticated" };
         }
 
-        const { data: existingUser } = await db
-            .from("users")
-            .select("id")
-            .eq("id", user.id)
-            .single();
+        const email = user.emailAddresses.find(
+            (email: { id: string; emailAddress: string }) => email.id === user.primaryEmailAddressId
+        )?.emailAddress;
 
-        if (!existingUser) {
-            const email = user.emailAddresses.find(
-                (email: { id: string; emailAddress: string }) => email.id === user.primaryEmailAddressId
-            )?.emailAddress;
-
-            const { error } = await db.from("users").insert({
-                id: user.id,
-                name: user.fullName || user.username || "Unknown", // Fallback for name
+        // Use Prisma upsert - bypasses RLS since Prisma uses direct connection
+        await prisma.user.upsert({
+            where: { id: user.id },
+            update: {
+                name: user.fullName || user.username || "Unknown",
                 email: email || "",
-                updated_at: new Date().toISOString(),
-                created_at: new Date().toISOString(),
-            });
-
-            if (error) {
-                console.error("Error inserting user into Supabase:", error);
-                return { error: error.message };
-            }
-        }
+            },
+            create: {
+                id: user.id,
+                name: user.fullName || user.username || "Unknown",
+                email: email || "",
+            },
+        });
 
         return { success: true };
     } catch (error) {

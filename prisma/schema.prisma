@@ -36,6 +36,7 @@ model Expense {
 
   team_id     String?
   team        Team?     @relation(fields: [team_id], references: [id])
+  settlements Settlement[]
   
   @@index([team_id, deleted_at])
   @@index([created_at])
@@ -53,6 +54,8 @@ model Settlement {
   created_at  DateTime  @default(now())
   updated_at  DateTime  @updatedAt
   deleted_at  DateTime?
+
+  expense     Expense   @relation(fields: [expense_id], references: [id], onDelete: Cascade)
 
   @@index([expense_id, deleted_at])
   @@index([owed_by])

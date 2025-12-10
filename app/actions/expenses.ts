@@ -106,7 +106,7 @@ export async function createExpense(input: CreateExpenseInput) {
 
 // Optimized: Single query with JOIN to get expenses with payer names
 export async function getTeamExpenses(
-    teamId: string, 
+    teamId: string,
     { cursor, limit = 20 }: PaginationParams = {}
 ) {
     try {
@@ -135,13 +135,13 @@ export async function getTeamExpenses(
 
         // Batch fetch user names in single query
         const userIds = [...new Set(expenses.map((e) => e.paid_by))];
-        const users = userIds.length > 0 
+        const users = userIds.length > 0
             ? await prisma.user.findMany({
                 where: { id: { in: userIds } },
                 select: { id: true, name: true },
-              })
+            })
             : [];
-        
+
         const userMap = new Map(users.map((u) => [u.id, u.name]));
 
         // Check if there are more results
@@ -263,12 +263,12 @@ export async function getTeamSettlements(
                 ...expenses.map((e) => e.paid_by),
             ]),
         ];
-        
+
         const users = userIds.length > 0
             ? await prisma.user.findMany({
                 where: { id: { in: userIds } },
                 select: { id: true, name: true },
-              })
+            })
             : [];
         const userMap = new Map(users.map((u) => [u.id, u.name]));
 
@@ -306,6 +306,7 @@ export async function getTeamSettlements(
     }
 }
 
+// Update markSettlementAsPaid to allow creditor to mark as paid
 export async function markSettlementAsPaid(settlementId: string) {
     try {
         const user = await currentUser();
@@ -315,14 +316,27 @@ export async function markSettlementAsPaid(settlementId: string) {
 
         const settlement = await prisma.settlement.findUnique({
             where: { id: settlementId },
+            include: {
+                expense: {
+                    select: {
+                        paid_by: true,
+                        team_id: true,
+                        description: true,
+                    }
+                }
+            }
         });
 
         if (!settlement) {
             return { error: "Settlement not found" };
         }
 
-        if (settlement.owed_by !== user.id) {
-            return { error: "Only the person who owes can mark as paid" };
+        // Allow if user is the debtor OR the creditor
+        const isDebtor = settlement.owed_by === user.id;
+        const isCreditor = settlement.expense.paid_by === user.id;
+
+        if (!isDebtor && !isCreditor) {
+            return { error: "Not authorized to mark this settlement as paid" };
         }
 
         // Use transaction to batch update and log creation
@@ -335,26 +349,26 @@ export async function markSettlementAsPaid(settlementId: string) {
                 },
             });
 
-            const expense = await tx.expense.findUnique({
-                where: { id: updatedSettlement.expense_id },
-                select: { team_id: true, description: true, paid_by: true },
+            const owedToUser = await tx.user.findUnique({
+                where: { id: settlement.expense.paid_by },
+                select: { name: true },
             });
 
-            if (expense?.team_id) {
-                const owedToUser = await tx.user.findUnique({ 
-                    where: { id: expense.paid_by },
-                    select: { name: true },
-                });
+            const owedByUser = await tx.user.findUnique({
+                where: { id: settlement.owed_by },
+                select: { name: true },
+            });
 
-                await tx.activityLog.create({
-                    data: {
-                        team_id: expense.team_id,
-                        user_id: user.id,
-                        action: "PAID_SETTLEMENT",
-                        details: `Paid PHP ${updatedSettlement.amount_owed.toFixed(2)} to ${owedToUser?.name || 'Unknown'} for '${expense.description}'`,
-                    },
-                });
-            }
+            await tx.activityLog.create({
+                data: {
+                    team_id: settlement.expense.team_id || "",
+                    user_id: user.id, // Who performed the action
+                    action: "PAID_SETTLEMENT",
+                    details: isDebtor
+                        ? `Paid PHP ${updatedSettlement.amount_owed.toFixed(2)} to ${owedToUser?.name || 'Unknown'} for '${settlement.expense.description}'`
+                        : `Marked debt of PHP ${updatedSettlement.amount_owed.toFixed(2)} from ${owedByUser?.name || 'Unknown'} as paid for '${settlement.expense.description}'`,
+                },
+            });
         });
 
         revalidatePath("/dashboard");
@@ -362,6 +376,145 @@ export async function markSettlementAsPaid(settlementId: string) {
     } catch (error) {
         console.error("Error marking settlement as paid:", error);
         return { error: "Failed to mark as paid" };
+    }
+}
+
+
+export async function getMyPendingSettlements(teamId: string) {
+    try {
+        const user = await currentUser();
+        if (!user) {
+            return [];
+        }
+
+        // Verify membership
+        const membership = await verifyTeamMembership(teamId, user.id);
+        if (!membership) {
+            return [];
+        }
+
+        // Get pending settlements where the user owes money
+        const settlements = await prisma.settlement.findMany({
+            where: {
+                owed_by: user.id,
+                status: Status.pending,
+                deleted_at: null,
+                expense: {
+                    team_id: teamId,
+                }
+            },
+            include: {
+                expense: {
+                    select: {
+                        description: true,
+                        amount: true,
+                        paid_by: true,
+                        created_at: true,
+                        category: true,
+                    }
+                }
+            },
+            orderBy: {
+                created_at: 'desc'
+            }
+        });
+
+        if (settlements.length === 0) {
+            return [];
+        }
+
+        // Fetch names of creditors (users who paid)
+        const creditorIds = [...new Set(settlements.map(s => s.expense.paid_by))];
+        const creditors = await prisma.user.findMany({
+            where: { id: { in: creditorIds } },
+            select: { id: true, name: true, email: true }
+        });
+
+        const creditorMap = new Map(creditors.map(c => [c.id, c]));
+
+        // Transform data for UI
+        return settlements.map(settlement => ({
+            id: settlement.id,
+            amount: settlement.amount_owed,
+            expense_description: settlement.expense.description,
+            expense_amount: settlement.expense.amount,
+            expense_date: settlement.expense.created_at,
+            category: settlement.expense.category,
+            owed_to: creditorMap.get(settlement.expense.paid_by) || { id: 'unknown', name: 'Unknown', email: '' },
+        }));
+
+    } catch (error) {
+        console.error("Error fetching my pending settlements:", error);
+        return [];
+    }
+}
+
+export async function getMyReceivables(teamId: string) {
+    try {
+        const user = await currentUser();
+        if (!user) {
+            return [];
+        }
+
+        // Verify membership
+        const membership = await verifyTeamMembership(teamId, user.id);
+        if (!membership) {
+            return [];
+        }
+
+        // Get pending settlements where the user is owed money
+        // We find settlements where the expense was paid by the user
+        const settlements = await prisma.settlement.findMany({
+            where: {
+                status: Status.pending,
+                deleted_at: null,
+                expense: {
+                    team_id: teamId,
+                    paid_by: user.id,
+                }
+            },
+            include: {
+                expense: {
+                    select: {
+                        description: true,
+                        amount: true,
+                        created_at: true,
+                        category: true,
+                    }
+                }
+            },
+            orderBy: {
+                created_at: 'desc'
+            }
+        });
+
+        if (settlements.length === 0) {
+            return [];
+        }
+
+        // Fetch names of debtors (users who owe)
+        const debtorIds = [...new Set(settlements.map(s => s.owed_by))];
+        const debtors = await prisma.user.findMany({
+            where: { id: { in: debtorIds } },
+            select: { id: true, name: true, email: true }
+        });
+
+        const debtorMap = new Map(debtors.map(d => [d.id, d]));
+
+        // Transform data for UI
+        return settlements.map(settlement => ({
+            id: settlement.id,
+            amount: settlement.amount_owed,
+            expense_description: settlement.expense.description,
+            expense_amount: settlement.expense.amount,
+            expense_date: settlement.expense.created_at,
+            category: settlement.expense.category,
+            owed_by: debtorMap.get(settlement.owed_by) || { id: 'unknown', name: 'Unknown', email: '' },
+        }));
+
+    } catch (error) {
+        console.error("Error fetching my receivables:", error);
+        return [];
     }
 }
 
@@ -485,7 +638,7 @@ export async function getExpenseStats(teamId: string) {
 
         // Get settlement counts
         const expenseIdList = expenseIds.map(e => e.id);
-        const [totalSettlements, paidSettlements] = expenseIdList.length > 0 
+        const [totalSettlements, paidSettlements] = expenseIdList.length > 0
             ? await Promise.all([
                 prisma.settlement.count({
                     where: {

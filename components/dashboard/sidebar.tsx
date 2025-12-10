@@ -29,6 +29,7 @@ const navigation = [
     { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { name: "Expenses", href: "/dashboard/expenses", icon: Receipt },
     { name: "Members", href: "/dashboard/members", icon: Users },
+    { name: "Payments", href: "/dashboard/payments", icon: DollarSign },
     { name: "Logs", href: "/dashboard/logs", icon: History },
     { name: "Receipts", href: "/dashboard/receipts", icon: FileText },
     { name: "Reports", href: "/dashboard/reports", icon: BarChart3 },
