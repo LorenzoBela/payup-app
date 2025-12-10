@@ -1,26 +1,32 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { Database } from './database.types';
 
-// Client for server-side operations
-export const supabaseAdmin = (() => {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+// Lazy-loaded client to prevent build-time initialization errors
+let _supabaseAdmin: SupabaseClient<Database> | null = null;
 
-    // Only create the client if we have the keys (prevents build time errors in some contexts, though typical server usage ensures variables)
-    if (!supabaseUrl || !supabaseServiceKey) {
-        // In edge cases or build time, we might not want to throw immediately if not used, 
-        // but generally for admin usage we expect it to be present.
-        // We'll let it throw natural validation errors if accessed.
-    }
+function getSupabaseAdmin(): SupabaseClient<Database> {
+    if (!_supabaseAdmin) {
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+        const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    return createClient<Database>(
-        supabaseUrl,
-        supabaseServiceKey,
-        {
+        if (!supabaseUrl || !supabaseServiceKey) {
+            throw new Error('Missing Supabase environment variables');
+        }
+
+        _supabaseAdmin = createClient<Database>(supabaseUrl, supabaseServiceKey, {
             auth: {
                 autoRefreshToken: false,
                 persistSession: false
             }
-        }
-    );
-})();
+        });
+    }
+    return _supabaseAdmin;
+}
+
+// Client for server-side operations (lazy-loaded via proxy)
+export const supabaseAdmin = new Proxy({} as SupabaseClient<Database>, {
+    get(_, prop) {
+        const client = getSupabaseAdmin();
+        return (client as unknown as Record<string, unknown>)[prop as string];
+    }
+});
