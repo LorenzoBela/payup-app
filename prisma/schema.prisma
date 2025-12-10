@@ -37,6 +37,9 @@ model Expense {
   team_id     String?
   team        Team?     @relation(fields: [team_id], references: [id])
   
+  @@index([team_id, deleted_at])
+  @@index([created_at])
+  @@index([paid_by])
   @@map("expenses")
 }
 
@@ -51,6 +54,10 @@ model Settlement {
   updated_at  DateTime  @updatedAt
   deleted_at  DateTime?
 
+  @@index([expense_id, deleted_at])
+  @@index([owed_by])
+  @@index([status])
+  @@index([created_at])
   @@map("settlements")
 }
 
@@ -90,6 +97,7 @@ model TeamMember {
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@unique([team_id, user_id])
+  @@index([user_id])
   @@map("team_members")
 }
 
@@ -104,5 +112,6 @@ model ActivityLog {
   team        Team     @relation(fields: [team_id], references: [id], onDelete: Cascade)
   user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
+  @@index([team_id, created_at])
   @@map("activity_logs")
 }

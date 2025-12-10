@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -8,14 +8,15 @@ import { Loader2, DollarSign, Users, ArrowUpRight, ArrowDownLeft } from "lucide-
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { createTeam, joinTeam } from "../actions/teams";
-import { getTeamBalances } from "../actions/expenses";
 import { toast } from "sonner";
 import { useUser } from "@clerk/nextjs";
 import { AddExpenseDialog } from "@/components/dashboard/add-expense-dialog";
 import { ExpenseList } from "@/components/dashboard/expense-list";
 import { SettlementsList } from "@/components/dashboard/settlements-list";
 import { useTeam } from "@/components/dashboard/team-provider";
+import { useTeamBalances } from "@/lib/hooks/use-dashboard-data";
 
 export default function DashboardPage() {
   const { user, isLoaded } = useUser();
@@ -28,25 +29,10 @@ export default function DashboardPage() {
   const [newTeamName, setNewTeamName] = useState("");
   const [joinTeamCode, setJoinTeamCode] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
-
-  // Balances state
-  const [balances, setBalances] = useState({
-    youOwe: 0,
-    owedToYou: 0,
-    youOweCount: 0,
-    owedToYouCount: 0,
-  });
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const fetchBalances = useCallback(async () => {
-    if (!selectedTeam) return;
-    try {
-      const data = await getTeamBalances(selectedTeam.id);
-      setBalances(data);
-    } catch (error) {
-      console.error("Failed to fetch balances:", error);
-    }
-  }, [selectedTeam]);
+  // Use SWR for balances with caching
+  const { balances, isLoading: balancesLoading, mutate: mutateBalances } = useTeamBalances(selectedTeam?.id || null);
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -55,12 +41,6 @@ export default function DashboardPage() {
       return;
     }
   }, [user, isLoaded, router]);
-
-  useEffect(() => {
-    if (selectedTeam) {
-      fetchBalances();
-    }
-  }, [selectedTeam, refreshKey, fetchBalances]);
 
   // Handle URL actions
   useEffect(() => {
@@ -74,7 +54,7 @@ export default function DashboardPage() {
 
   const handleExpenseAdded = () => {
     setRefreshKey((prev) => prev + 1);
-    fetchBalances();
+    mutateBalances(); // Refresh balances via SWR
   };
 
   const handleCreateTeam = async () => {
@@ -152,7 +132,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Stats Cards */}
+          {/* Stats Cards with skeleton loading */}
           <div className="grid gap-4 md:grid-cols-3">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -160,9 +140,13 @@ export default function DashboardPage() {
                 <DollarSign className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className={`text-2xl font-bold ${balances.owedToYou - balances.youOwe >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                  ₱{(balances.owedToYou - balances.youOwe).toFixed(2)}
-                </div>
+                {balancesLoading ? (
+                  <Skeleton className="h-8 w-24" />
+                ) : (
+                  <div className={`text-2xl font-bold ${balances.owedToYou - balances.youOwe >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    ₱{(balances.owedToYou - balances.youOwe).toFixed(2)}
+                  </div>
+                )}
                 <p className="text-xs text-muted-foreground">Net balance across team</p>
               </CardContent>
             </Card>
@@ -172,8 +156,14 @@ export default function DashboardPage() {
                 <ArrowUpRight className="h-4 w-4 text-red-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-red-500">₱{balances.youOwe.toFixed(2)}</div>
-                <p className="text-xs text-muted-foreground">to {balances.youOweCount} member{balances.youOweCount !== 1 ? 's' : ''}</p>
+                {balancesLoading ? (
+                  <Skeleton className="h-8 w-24" />
+                ) : (
+                  <div className="text-2xl font-bold text-red-500">₱{balances.youOwe.toFixed(2)}</div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  to {balances.youOweCount} member{balances.youOweCount !== 1 ? 's' : ''}
+                </p>
               </CardContent>
             </Card>
             <Card>
@@ -182,8 +172,14 @@ export default function DashboardPage() {
                 <ArrowDownLeft className="h-4 w-4 text-green-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-green-500">₱{balances.owedToYou.toFixed(2)}</div>
-                <p className="text-xs text-muted-foreground">from {balances.owedToYouCount} member{balances.owedToYouCount !== 1 ? 's' : ''}</p>
+                {balancesLoading ? (
+                  <Skeleton className="h-8 w-24" />
+                ) : (
+                  <div className="text-2xl font-bold text-green-500">₱{balances.owedToYou.toFixed(2)}</div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  from {balances.owedToYouCount} member{balances.owedToYouCount !== 1 ? 's' : ''}
+                </p>
               </CardContent>
             </Card>
           </div>

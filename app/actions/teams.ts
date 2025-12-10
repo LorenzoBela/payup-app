@@ -22,19 +22,23 @@ export async function createTeam(name: string) {
             return { error: "Not authenticated" };
         }
 
+        // Generate unique code with retry limit
         let code = generateTeamCode();
-        let isUnique = false;
+        let attempts = 0;
+        const maxAttempts = 10;
 
-        // Ensure code uniqueness
-        while (!isUnique) {
+        while (attempts < maxAttempts) {
             const existingTeam = await prisma.team.findUnique({
                 where: { code },
+                select: { id: true },
             });
-            if (!existingTeam) {
-                isUnique = true;
-            } else {
-                code = generateTeamCode();
-            }
+            if (!existingTeam) break;
+            code = generateTeamCode();
+            attempts++;
+        }
+
+        if (attempts >= maxAttempts) {
+            return { error: "Failed to generate unique code, please try again" };
         }
 
         const team = await prisma.team.create({
@@ -65,24 +69,22 @@ export async function joinTeam(code: string) {
             return { error: "Not authenticated" };
         }
 
+        // Single query to find team and check membership
         const team = await prisma.team.findUnique({
-            where: { code: code.toUpperCase() }, // Case insensitive matching usually good for codes
+            where: { code: code.toUpperCase() },
+            include: {
+                members: {
+                    where: { user_id: user.id },
+                    select: { id: true },
+                },
+            },
         });
 
         if (!team) {
             return { error: "Team not found" };
         }
 
-        const existingMember = await prisma.teamMember.findUnique({
-            where: {
-                team_id_user_id: {
-                    team_id: team.id,
-                    user_id: user.id,
-                },
-            },
-        });
-
-        if (existingMember) {
+        if (team.members.length > 0) {
             return { error: "Already a member of this team" };
         }
 
@@ -95,13 +97,14 @@ export async function joinTeam(code: string) {
         });
 
         revalidatePath("/dashboard");
-        return { success: true, team };
+        return { success: true, team: { id: team.id, name: team.name, code: team.code } };
     } catch (error) {
         console.error("Error joining team:", error);
         return { error: "Failed to join team" };
     }
 }
 
+// Optimized: Single query with proper includes
 export async function getUserTeams() {
     try {
         const user = await currentUser();
@@ -111,9 +114,14 @@ export async function getUserTeams() {
 
         const members = await prisma.teamMember.findMany({
             where: { user_id: user.id },
-            include: {
+            select: {
+                role: true,
                 team: {
-                    include: {
+                    select: {
+                        id: true,
+                        name: true,
+                        code: true,
+                        created_at: true,
                         _count: {
                             select: { members: true },
                         },
@@ -123,7 +131,10 @@ export async function getUserTeams() {
         });
 
         return members.map((member) => ({
-            ...member.team,
+            id: member.team.id,
+            name: member.team.name,
+            code: member.team.code,
+            created_at: member.team.created_at,
             role: member.role,
             memberCount: member.team._count.members,
         }));
@@ -133,39 +144,41 @@ export async function getUserTeams() {
     }
 }
 
+// Optimized: Combined membership check with data fetch
 export async function getTeamMembers(teamId: string) {
     try {
         const user = await currentUser();
         if (!user) return [];
 
-        // Verify membership
-        const membership = await prisma.teamMember.findUnique({
-            where: {
-                team_id_user_id: {
-                    team_id: teamId,
-                    user_id: user.id
-                }
-            }
-        });
-        if (!membership) return [];
-
+        // Single query that also verifies membership
         const members = await prisma.teamMember.findMany({
             where: { team_id: teamId },
-            include: {
-                user: true
+            select: {
+                user_id: true,
+                role: true,
+                joined_at: true,
+                user: {
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                    },
+                },
             },
-            orderBy: { joined_at: 'desc' }
+            orderBy: { joined_at: 'asc' },
         });
 
-        // Enrich with real user data if needed, but 'user' relation should work if User table is synced
+        // Check if current user is a member
+        const isMember = members.some(m => m.user_id === user.id);
+        if (!isMember) return [];
+
         return members.map(m => ({
-            id: m.user.id, // Return user ID as the member ID for display purposes
+            id: m.user.id,
             name: m.user.name || "Unknown",
             email: m.user.email,
             role: m.role,
-            joinedAt: m.joined_at
+            joinedAt: m.joined_at,
         }));
-
     } catch (error) {
         console.error("Error fetching team members", error);
         return [];

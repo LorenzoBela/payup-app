@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { getUserTeams } from "@/app/actions/teams";
+import useSWR from "swr";
 import { toast } from "sonner";
 import { useUser } from "@clerk/nextjs";
 
@@ -25,48 +26,53 @@ const TeamContext = createContext<TeamContextType | undefined>(undefined);
 
 export function TeamProvider({ children }: { children: React.ReactNode }) {
     const { user, isLoaded } = useUser();
-    const [teams, setTeams] = useState<Team[]>([]);
     const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
 
-    const refreshTeams = useCallback(async () => {
-        if (!user) return;
-        try {
-            // Don't set loading to true on refresh to avoid flicker if just updating data
-            // Only initial load needs generic loading state
-            const userTeams = await getUserTeams();
-            setTeams(userTeams);
-
-            if (userTeams.length > 0) {
-                // If we have a selected team, try to keep it selected (update its data)
-                // Otherwise select the first one
-                if (selectedTeam) {
-                    const current = userTeams.find((t: any) => t.id === selectedTeam.id);
-                    setSelectedTeam(current || userTeams[0]);
-                } else {
-                    setSelectedTeam(userTeams[0]);
-                }
-            } else {
-                setSelectedTeam(null);
-            }
-        } catch (error) {
-            console.error("Failed to fetch teams", error);
-            toast.error("Failed to load teams");
-        } finally {
-            setIsLoading(false);
+    // Use SWR for caching team data
+    const { data: teams = [], isLoading, mutate } = useSWR<Team[]>(
+        isLoaded && user ? ["user-teams", user.id] : null,
+        () => getUserTeams(),
+        {
+            revalidateOnFocus: false,
+            dedupingInterval: 10000, // Cache for 10 seconds
+            errorRetryCount: 2,
+            onError: (error) => {
+                console.error("Failed to fetch teams", error);
+                toast.error("Failed to load teams");
+            },
         }
-    }, [user, selectedTeam]);
+    );
 
+    // Handle team selection when teams load
     useEffect(() => {
-        if (isLoaded && user) {
-            refreshTeams();
-        } else if (isLoaded && !user) {
-            setIsLoading(false);
+        if (teams.length > 0 && !selectedTeam) {
+            setSelectedTeam(teams[0]);
+        } else if (teams.length > 0 && selectedTeam) {
+            // Update selected team data if it changed
+            const current = teams.find((t) => t.id === selectedTeam.id);
+            if (current && JSON.stringify(current) !== JSON.stringify(selectedTeam)) {
+                setSelectedTeam(current);
+            }
+        } else if (teams.length === 0) {
+            setSelectedTeam(null);
+        }
+    }, [teams, selectedTeam]);
+
+    // Handle user logout
+    useEffect(() => {
+        if (isLoaded && !user) {
+            setSelectedTeam(null);
         }
     }, [isLoaded, user]);
 
+    const refreshTeams = useCallback(async () => {
+        await mutate();
+    }, [mutate]);
+
+    const loading = !isLoaded || isLoading;
+
     return (
-        <TeamContext.Provider value={{ teams, selectedTeam, setSelectedTeam, isLoading, refreshTeams }}>
+        <TeamContext.Provider value={{ teams, selectedTeam, setSelectedTeam, isLoading: loading, refreshTeams }}>
             {children}
         </TeamContext.Provider>
     );

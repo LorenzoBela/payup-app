@@ -1,50 +1,39 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Download, PieChart, TrendingUp, DollarSign, Loader2, Receipt } from "lucide-react";
 import { useTeam } from "@/components/dashboard/team-provider";
 import { getExpenseStats, getCategoryStats } from "@/app/actions/expenses";
-import { toast } from "sonner";
+import useSWR from "swr";
+
+// SWR config for reports (doesn't need frequent updates)
+const swrConfig = {
+    revalidateOnFocus: false,
+    dedupingInterval: 30000, // Cache for 30 seconds
+    errorRetryCount: 2,
+};
 
 export default function ReportsPage() {
-    const { selectedTeam, isLoading } = useTeam();
-    const [stats, setStats] = useState({
-        totalSpent: 0,
-        thisMonthSpent: 0,
-        avgExpense: 0,
-        settlementsCompleted: 0,
-        settlementsTotal: 0
-    });
-    const [categories, setCategories] = useState<{ category: string; amount: number; count: number }[]>([]);
-    const [dataLoading, setDataLoading] = useState(false);
+    const { selectedTeam, isLoading: teamLoading } = useTeam();
 
-    useEffect(() => {
-        const fetchData = async () => {
-            if (!selectedTeam) return;
-            setDataLoading(true);
-            try {
-                const [statsData, categoryData] = await Promise.all([
-                    getExpenseStats(selectedTeam.id),
-                    getCategoryStats(selectedTeam.id)
-                ]);
-                setStats(statsData);
-                setCategories(categoryData);
-            } catch (error) {
-                console.error("Failed to fetch report data", error);
-                toast.error("Failed to load report data");
-            } finally {
-                setDataLoading(false);
-            }
-        };
+    // Use SWR for caching report data
+    const { data: stats, isLoading: statsLoading } = useSWR(
+        selectedTeam ? ["expense-stats", selectedTeam.id] : null,
+        () => getExpenseStats(selectedTeam!.id),
+        swrConfig
+    );
 
-        if (selectedTeam) {
-            fetchData();
-        }
-    }, [selectedTeam]);
+    const { data: categories, isLoading: categoriesLoading } = useSWR(
+        selectedTeam ? ["category-stats", selectedTeam.id] : null,
+        () => getCategoryStats(selectedTeam!.id),
+        swrConfig
+    );
 
-    if (isLoading) {
+    const dataLoading = statsLoading || categoriesLoading;
+
+    if (teamLoading) {
         return (
             <div className="flex items-center justify-center min-h-[50vh]">
                 <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -62,7 +51,16 @@ export default function ReportsPage() {
         );
     }
 
-    const maxCategoryAmount = Math.max(...categories.map(c => c.amount), 1);
+    const safeStats = stats || {
+        totalSpent: 0,
+        thisMonthSpent: 0,
+        avgExpense: 0,
+        settlementsCompleted: 0,
+        settlementsTotal: 0
+    };
+
+    const safeCategories = categories || [];
+    const maxCategoryAmount = Math.max(...safeCategories.map(c => c.amount), 1);
 
     return (
         <div className="space-y-6">
@@ -85,8 +83,10 @@ export default function ReportsPage() {
                         <DollarSign className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        {dataLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : (
-                            <div className="text-2xl font-bold">₱{stats.totalSpent.toLocaleString()}</div>
+                        {dataLoading ? (
+                            <Skeleton className="h-8 w-28" />
+                        ) : (
+                            <div className="text-2xl font-bold">₱{safeStats.totalSpent.toLocaleString()}</div>
                         )}
                         <p className="text-xs text-muted-foreground">Lifetime expenses</p>
                     </CardContent>
@@ -97,8 +97,10 @@ export default function ReportsPage() {
                         <TrendingUp className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        {dataLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : (
-                            <div className="text-2xl font-bold">₱{stats.thisMonthSpent.toLocaleString()}</div>
+                        {dataLoading ? (
+                            <Skeleton className="h-8 w-28" />
+                        ) : (
+                            <div className="text-2xl font-bold">₱{safeStats.thisMonthSpent.toLocaleString()}</div>
                         )}
                         <p className="text-xs text-muted-foreground">This month</p>
                     </CardContent>
@@ -109,8 +111,10 @@ export default function ReportsPage() {
                         <Receipt className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        {dataLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : (
-                            <div className="text-2xl font-bold">{stats.settlementsCompleted} / {stats.settlementsTotal}</div>
+                        {dataLoading ? (
+                            <Skeleton className="h-8 w-20" />
+                        ) : (
+                            <div className="text-2xl font-bold">{safeStats.settlementsCompleted} / {safeStats.settlementsTotal}</div>
                         )}
                         <p className="text-xs text-muted-foreground">Settlements paid</p>
                     </CardContent>
@@ -121,8 +125,10 @@ export default function ReportsPage() {
                         <DollarSign className="h-4 w-4 text-muted-foreground" />
                     </CardHeader>
                     <CardContent>
-                        {dataLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : (
-                            <div className="text-2xl font-bold">₱{stats.avgExpense.toFixed(2)}</div>
+                        {dataLoading ? (
+                            <Skeleton className="h-8 w-24" />
+                        ) : (
+                            <div className="text-2xl font-bold">₱{safeStats.avgExpense.toFixed(2)}</div>
                         )}
                         <p className="text-xs text-muted-foreground">Per transaction</p>
                     </CardContent>
@@ -137,21 +143,33 @@ export default function ReportsPage() {
                         <CardDescription>Where your money is going</CardDescription>
                     </CardHeader>
                     <CardContent>
-                        {dataLoading ? <div className="flex justify-center p-8"><Loader2 className="w-8 h-8 animate-spin" /></div> : categories.length === 0 ? (
+                        {dataLoading ? (
+                            <div className="space-y-4">
+                                {[...Array(3)].map((_, i) => (
+                                    <div key={i} className="space-y-2">
+                                        <div className="flex justify-between">
+                                            <Skeleton className="h-4 w-20" />
+                                            <Skeleton className="h-4 w-24" />
+                                        </div>
+                                        <Skeleton className="h-2 w-full" />
+                                    </div>
+                                ))}
+                            </div>
+                        ) : safeCategories.length === 0 ? (
                             <p className="text-muted-foreground text-center py-8">No expense data available.</p>
                         ) : (
                             <div className="space-y-4">
-                                {categories.map((item) => (
+                                {safeCategories.map((item) => (
                                     <div key={item.category} className="space-y-1">
                                         <div className="flex justify-between text-sm">
-                                            <span className="font-medium">{item.category}</span>
+                                            <span className="font-medium capitalize">{item.category}</span>
                                             <span className="text-muted-foreground">
-                                                ₱{item.amount.toLocaleString()} ({Math.round(item.amount / stats.totalSpent * 100)}%)
+                                                ₱{item.amount.toLocaleString()} ({Math.round(item.amount / safeStats.totalSpent * 100) || 0}%)
                                             </span>
                                         </div>
                                         <div className="h-2 bg-secondary rounded-full overflow-hidden">
                                             <div
-                                                className="h-full bg-primary"
+                                                className="h-full bg-primary transition-all duration-500"
                                                 style={{ width: `${(item.amount / maxCategoryAmount) * 100}%` }}
                                             />
                                         </div>
@@ -172,16 +190,31 @@ export default function ReportsPage() {
                         <div className="space-y-4">
                             <div className="p-4 bg-muted/50 rounded-lg">
                                 <h4 className="font-semibold mb-1">Top Category</h4>
-                                <p className="text-sm text-muted-foreground">
-                                    {categories.length > 0 ? (
-                                        <>
-                                            Your highest spending is on <span className="font-medium text-foreground">{categories[0].category}</span> with ₱{categories[0].amount.toLocaleString()}.
-                                        </>
-                                    ) : (
-                                        "Not enough data to generate insights."
-                                    )}
-                                </p>
+                                {dataLoading ? (
+                                    <Skeleton className="h-4 w-full" />
+                                ) : (
+                                    <p className="text-sm text-muted-foreground">
+                                        {safeCategories.length > 0 ? (
+                                            <>
+                                                Your highest spending is on <span className="font-medium text-foreground capitalize">{safeCategories[0].category}</span> with ₱{safeCategories[0].amount.toLocaleString()}.
+                                            </>
+                                        ) : (
+                                            "Not enough data to generate insights."
+                                        )}
+                                    </p>
+                                )}
                             </div>
+                            {safeCategories.length > 1 && !dataLoading && (
+                                <div className="p-4 bg-muted/50 rounded-lg">
+                                    <h4 className="font-semibold mb-1">Spending Distribution</h4>
+                                    <p className="text-sm text-muted-foreground">
+                                        You have expenses in {safeCategories.length} categories. 
+                                        {safeStats.settlementsTotal > 0 && (
+                                            <> {Math.round((safeStats.settlementsCompleted / safeStats.settlementsTotal) * 100)}% of settlements are completed.</>
+                                        )}
+                                    </p>
+                                </div>
+                            )}
                         </div>
                     </CardContent>
                 </Card>

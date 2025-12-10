@@ -1,14 +1,15 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Search, Copy, UserPlus, Mail, Shield, Loader2, Users } from "lucide-react";
 import { useTeam } from "@/components/dashboard/team-provider";
-import { getTeamMembers } from "@/app/actions/teams";
+import { useTeamMembers } from "@/lib/hooks/use-dashboard-data";
 import { toast } from "sonner";
 
 // Helper to get initials
@@ -22,30 +23,10 @@ function getInitials(name: string) {
 }
 
 export default function MembersPage() {
-    const { selectedTeam, isLoading } = useTeam();
+    const { selectedTeam, isLoading: teamLoading } = useTeam();
     const [searchQuery, setSearchQuery] = useState("");
-    const [members, setMembers] = useState<any[]>([]);
-    const [membersLoading, setMembersLoading] = useState(false);
 
-    useEffect(() => {
-        const fetchMembers = async () => {
-            if (!selectedTeam) return;
-            setMembersLoading(true);
-            try {
-                const data = await getTeamMembers(selectedTeam.id);
-                setMembers(data);
-            } catch (error) {
-                console.error("Failed to fetch members", error);
-                toast.error("Failed to load members");
-            } finally {
-                setMembersLoading(false);
-            }
-        };
-
-        if (selectedTeam) {
-            fetchMembers();
-        }
-    }, [selectedTeam]);
+    const { members, isLoading: membersLoading } = useTeamMembers(selectedTeam?.id || null);
 
     const copyInviteCode = () => {
         if (selectedTeam) {
@@ -60,7 +41,7 @@ export default function MembersPage() {
             (member.email && member.email.toLowerCase().includes(searchQuery.toLowerCase()))
     );
 
-    if (isLoading) {
+    if (teamLoading) {
         return (
             <div className="flex items-center justify-center min-h-[50vh]">
                 <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -84,9 +65,6 @@ export default function MembersPage() {
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Team Members</h1>
                     <p className="text-muted-foreground">Manage your team and invites</p>
-                </div>
-                <div className="flex gap-2">
-                    {/* Placeholder for future specific invite feature */}
                 </div>
             </div>
 
@@ -120,7 +98,7 @@ export default function MembersPage() {
             <Card>
                 <CardHeader>
                     <div className="flex items-center justify-between">
-                        <CardTitle>Members ({filteredMembers.length})</CardTitle>
+                        <CardTitle>Members ({members.length})</CardTitle>
                         <div className="relative w-full max-w-sm">
                             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                             <Input
@@ -135,9 +113,24 @@ export default function MembersPage() {
                 </CardHeader>
                 <CardContent>
                     {membersLoading ? (
-                        <div className="flex justify-center p-8"><Loader2 className="w-8 h-8 animate-spin" /></div>
+                        <div className="space-y-4">
+                            {[...Array(3)].map((_, i) => (
+                                <div key={i} className="flex items-center justify-between p-4 rounded-lg border">
+                                    <div className="flex items-center gap-4">
+                                        <Skeleton className="h-10 w-10 rounded-full" />
+                                        <div className="space-y-2">
+                                            <Skeleton className="h-4 w-32" />
+                                            <Skeleton className="h-3 w-48" />
+                                        </div>
+                                    </div>
+                                    <Skeleton className="h-4 w-24" />
+                                </div>
+                            ))}
+                        </div>
                     ) : filteredMembers.length === 0 ? (
-                        <p className="text-muted-foreground text-center py-8">No members found matching your search.</p>
+                        <p className="text-muted-foreground text-center py-8">
+                            {searchQuery ? "No members found matching your search." : "No members in this team yet."}
+                        </p>
                     ) : (
                         <div className="space-y-4">
                             {filteredMembers.map((member) => (
@@ -147,7 +140,7 @@ export default function MembersPage() {
                                 >
                                     <div className="flex items-center gap-4">
                                         <Avatar className="h-10 w-10">
-                                            <AvatarImage src="" /> {/* Avatar URL not explicitly in User model yet, fallback to initials */}
+                                            <AvatarImage src="" />
                                             <AvatarFallback>{getInitials(member.name)}</AvatarFallback>
                                         </Avatar>
                                         <div>
