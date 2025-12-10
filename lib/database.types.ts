@@ -6,6 +6,8 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
+export type UserRole = 'Client' | 'SuperAdmin'
+
 export interface Database {
   public: {
     Tables: {
@@ -14,6 +16,8 @@ export interface Database {
           id: string
           name: string
           email: string
+          gcash_number: string | null
+          role: UserRole
           created_at: string
           updated_at: string
           deleted_at: string | null
@@ -22,6 +26,8 @@ export interface Database {
           id?: string
           name: string
           email: string
+          gcash_number?: string | null
+          role?: UserRole
           created_at?: string
           updated_at?: string
           deleted_at?: string | null
@@ -30,6 +36,8 @@ export interface Database {
           id?: string
           name?: string
           email?: string
+          gcash_number?: string | null
+          role?: UserRole
           created_at?: string
           updated_at?: string
           deleted_at?: string | null
@@ -115,6 +123,7 @@ export interface Database {
     Enums: {
       category: 'food' | 'printing' | 'supplies' | 'other'
       status: 'pending' | 'paid'
+      user_role: UserRole
     }
   }
 }

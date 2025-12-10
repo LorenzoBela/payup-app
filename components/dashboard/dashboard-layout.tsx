@@ -7,6 +7,8 @@ import { useUser, UserButton } from "@clerk/nextjs";
 import { Loader2 } from "lucide-react";
 import { Sidebar, MobileSidebar } from "@/components/dashboard/sidebar";
 import { TeamSwitcher } from "@/components/team-switcher";
+import { DateDisplay } from "@/components/dashboard/date-display";
+import { ModeToggle } from "@/components/mode-toggle";
 import { Separator } from "@/components/ui/separator";
 import { useTeam } from "@/components/dashboard/team-provider";
 
@@ -68,6 +70,10 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
                         {/* Spacer */}
                         <div className="flex-1" />
+
+                        <DateDisplay />
+
+                        <ModeToggle />
 
                         {/* User Button */}
                         <UserButton afterSignOutUrl="/" />

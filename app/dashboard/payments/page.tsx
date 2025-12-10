@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useTeam } from "@/components/dashboard/team-provider";
-import { getMyPendingSettlements, getMyReceivables, markSettlementAsPaid } from "@/app/actions/expenses";
+import { getMyPendingSettlements, getMyReceivables, markSettlementAsPaid, markSettlementsAsPaid, verifySettlement, rejectSettlement } from "@/app/actions/expenses";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Loader2, DollarSign, Wallet, CheckCircle2, ArrowUpRight, ArrowDownLeft } from "lucide-react";
+import { Loader2, DollarSign, Wallet, CheckCircle2, ArrowUpRight, ArrowDownLeft, ChevronDown, ChevronUp, XCircle, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { PaymentModal } from "@/components/dashboard/payment-modal";
 import {
     Dialog,
     DialogContent,
@@ -18,11 +19,14 @@ import {
 } from "@/components/ui/dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { PaymentSummary } from "@/components/dashboard/payment-summary";
 
 interface Person {
     id: string;
     name: string;
     email: string;
+    gcash_number?: string | null;
 }
 
 interface PendingSettlement {
@@ -33,6 +37,9 @@ interface PendingSettlement {
     expense_date: Date;
     category: string;
     person: Person;
+    status: 'pending' | 'unconfirmed' | 'paid';
+    payment_method?: string | null;
+    proof_url?: string | null;
 }
 
 interface GroupedDebt {
@@ -48,6 +55,8 @@ export default function PaymentsPage() {
     const [receivables, setReceivables] = useState<GroupedDebt[]>([]);
     const [loading, setLoading] = useState(false);
     const [processingId, setProcessingId] = useState<string | null>(null);
+    const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+    const [selectedSettlement, setSelectedSettlement] = useState<any>(null);
 
     const fetchData = async () => {
         if (!selectedTeam) return;
@@ -110,15 +119,47 @@ export default function PaymentsPage() {
         fetchData();
     }, [selectedTeam]);
 
-    const handleAction = async (settlementId: string, type: 'pay' | 'collect') => {
+    const handleAction = async (settlementId: string, type: 'pay' | 'collect' | 'verify' | 'reject') => {
         setProcessingId(settlementId);
         try {
-            const result = await markSettlementAsPaid(settlementId);
+            if (type === 'pay') {
+                // Should open modal instead
+                // Keeping validation logic safe
+                const result = await markSettlementAsPaid(settlementId, "CASH");
+                // ... default fallback behavior
+            } else if (type === 'verify') {
+                const result = await verifySettlement(settlementId);
+                if (result.success) {
+                    toast.success("Payment verified!");
+                    await fetchData();
+                } else {
+                    toast.error(result.error || "Verification failed");
+                }
+            } else if (type === 'reject') {
+                const result = await rejectSettlement(settlementId);
+                if (result.success) {
+                    toast.success("Payment rejected!");
+                    await fetchData();
+                } else {
+                    toast.error(result.error || "Rejection failed");
+                }
+            }
+        } catch (error) {
+            toast.error("An error occurred");
+        } finally {
+            setProcessingId(null);
+        }
+    };
+
+    const handleBatchAction = async (settlementIds: string[], type: 'pay' | 'collect') => {
+        setProcessingId('batch');
+        try {
+            const result = await markSettlementsAsPaid(settlementIds);
             if (result.success) {
-                toast.success(type === 'pay' ? "Payment successful!" : "Marked as received!");
-                await fetchData(); // Refresh data
+                toast.success(type === 'pay' ? "All payments successful!" : "All marked as received!");
+                await fetchData();
             } else {
-                toast.error(result.error || "Action failed");
+                toast.error(result.error || "Batch action failed");
             }
         } catch (error) {
             toast.error("An error occurred");
@@ -135,7 +176,24 @@ export default function PaymentsPage() {
         );
     }
 
+    const openPaymentModal = (settlement: any) => {
+        setSelectedSettlement({
+            id: settlement.id,
+            amount: settlement.amount,
+            owed_to: settlement.person,
+            expense_description: settlement.expense_description
+        });
+        setPaymentModalOpen(true);
+    };
+
     const DebtList = ({ groups, type }: { groups: GroupedDebt[], type: 'payable' | 'receivable' }) => {
+        const [openStates, setOpenStates] = useState<Record<string, boolean>>({});
+
+
+        const toggleOpen = (id: string) => {
+            setOpenStates(prev => ({ ...prev, [id]: !prev[id] }));
+        };
+
         if (groups.length === 0) {
             return (
                 <Card className="bg-muted/50 border-dashed">
@@ -149,111 +207,181 @@ export default function PaymentsPage() {
         }
 
         return (
-            <div className="grid gap-6">
-                {groups.map((group) => (
-                    <Card key={group.personId} className="overflow-hidden">
-                        <CardHeader className="bg-muted/30 pb-4">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                    <div className={`p-2 rounded-full ${type === 'payable' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
-                                        {type === 'payable' ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownLeft className="w-5 h-5" />}
-                                    </div>
-                                    <div>
-                                        <CardTitle className="text-lg">
-                                            {type === 'payable' ? `Owed to ${group.person.name}` : `Owed by ${group.person.name}`}
-                                        </CardTitle>
-                                        <p className="text-sm text-muted-foreground">
-                                            Based on {group.settlements.length} expense{group.settlements.length > 1 ? 's' : ''}
-                                        </p>
-                                    </div>
-                                </div>
-                                <div className="text-right">
-                                    <p className="text-xs text-muted-foreground uppercase font-bold tracking-wider">Total Amount</p>
-                                    <p className={`text-2xl font-bold ${type === 'payable' ? 'text-red-600' : 'text-green-600'}`}>
-                                        PHP {group.totalAmount.toFixed(2)}
-                                    </p>
-                                </div>
-                            </div>
-                        </CardHeader>
-                        <CardContent className="p-0">
-                            <ul className="divide-y divide-border">
-                                {group.settlements.map((settlement) => (
-                                    <li key={settlement.id} className="p-4 hover:bg-muted/20 transition-colors">
-                                        <div className="flex items-center justify-between gap-4">
-                                            <div className="min-w-0 flex-1">
-                                                <p className="font-medium truncate">{settlement.expense_description}</p>
-                                                <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
-                                                    <span>{new Date(settlement.expense_date).toLocaleDateString()}</span>
-                                                    <span>•</span>
-                                                    <span className="capitalize">{settlement.category}</span>
-                                                    <span>•</span>
-                                                    <span>Original: PHP {settlement.expense_amount.toFixed(2)}</span>
-                                                </div>
+            <div className="grid gap-4">
+                {groups.map((group) => {
+                    const isOpen = openStates[group.personId] ?? false;
+                    return (
+                        <Card key={group.personId} className="overflow-hidden border shadow-sm">
+                            <Collapsible open={isOpen} onOpenChange={() => toggleOpen(group.personId)}>
+                                <div className="flex items-center justify-between p-4 bg-card hover:bg-muted/10 transition-colors">
+                                    <CollapsibleTrigger asChild>
+                                        <div className="flex items-center gap-4 flex-1 cursor-pointer">
+                                            <Button variant="ghost" size="sm" className="p-0 hover:bg-transparent">
+                                                {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                            </Button>
+                                            <div className={`p-2 rounded-full ${type === 'payable' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+                                                {type === 'payable' ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownLeft className="w-5 h-5" />}
                                             </div>
-                                            <div className="flex items-center gap-4">
-                                                <span className="font-semibold whitespace-nowrap">
-                                                    PHP {settlement.amount.toFixed(2)}
-                                                </span>
-                                                <Dialog>
-                                                    <DialogTrigger asChild>
-                                                        <Button
-                                                            size="sm"
-                                                            variant={type === 'payable' ? "default" : "outline"}
-                                                            disabled={processingId === settlement.id}
-                                                            className={type === 'receivable' ? "border-green-600 text-green-600 hover:bg-green-50" : ""}
-                                                        >
-                                                            {type === 'payable' ? "Pay" : "Collect"}
-                                                        </Button>
-                                                    </DialogTrigger>
-                                                    <DialogContent>
-                                                        <DialogHeader>
-                                                            <DialogTitle>{type === 'payable' ? "Confirm Payment" : "Confirm Receipt"}</DialogTitle>
-                                                            <DialogDescription>
-                                                                {type === 'payable'
-                                                                    ? `Are you sure you want to mark this debt to ${group.person.name} as paid?`
-                                                                    : `Are you sure you want to mark this debt from ${group.person.name} as received?`
-                                                                }
-                                                            </DialogDescription>
-                                                        </DialogHeader>
-
-                                                        <div className="py-4">
-                                                            <Alert variant={type === 'payable' ? "default" : "default"}>
-                                                                <DollarSign className="h-4 w-4" />
-                                                                <AlertTitle>Amount</AlertTitle>
-                                                                <AlertDescription className="font-bold text-lg mt-1">
-                                                                    PHP {settlement.amount.toFixed(2)}
-                                                                </AlertDescription>
-                                                            </Alert>
-                                                        </div>
-
-                                                        <DialogFooter>
-                                                            <Button variant="outline" onClick={() => { }}>Cancel</Button>
-                                                            <Button
-                                                                onClick={() => handleAction(settlement.id, type === 'payable' ? 'pay' : 'collect')}
-                                                                disabled={processingId === settlement.id}
-                                                                variant={type === 'payable' ? "default" : "outline"}
-                                                                className={type === 'receivable' ? "border-green-600 text-green-600 hover:bg-green-50" : ""}
-                                                            >
-                                                                {processingId === settlement.id ? (
-                                                                    <>
-                                                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                                                        Processing...
-                                                                    </>
-                                                                ) : (
-                                                                    type === 'payable' ? "Confirm Payment" : "Mark as Received"
-                                                                )}
-                                                            </Button>
-                                                        </DialogFooter>
-                                                    </DialogContent>
-                                                </Dialog>
+                                            <div>
+                                                <h3 className="font-semibold text-lg flex items-center gap-2">
+                                                    {group.person.name}
+                                                    <span className="text-sm font-normal text-muted-foreground">
+                                                        ({group.settlements.length} items)
+                                                    </span>
+                                                </h3>
                                             </div>
                                         </div>
-                                    </li>
-                                ))}
-                            </ul>
-                        </CardContent>
-                    </Card>
-                ))}
+                                    </CollapsibleTrigger>
+
+                                    <div className="flex items-center gap-4">
+                                        <div className="text-right mr-2">
+                                            <p className={`text-xl font-bold ${type === 'payable' ? 'text-red-600' : 'text-green-600'}`}>
+                                                PHP {group.totalAmount.toFixed(2)}
+                                            </p>
+                                        </div>
+                                        <Dialog>
+                                            <DialogTrigger asChild>
+                                                <Button
+                                                    size="sm"
+                                                    variant={type === 'payable' ? "default" : "outline"}
+                                                    disabled={processingId !== null}
+                                                    className={type === 'receivable' ? "border-green-600 text-green-600 hover:bg-green-50" : ""}
+                                                >
+                                                    {type === 'payable' ? "Pay All" : "Collect All"}
+                                                </Button>
+                                            </DialogTrigger>
+                                            <DialogContent>
+                                                <DialogHeader>
+                                                    <DialogTitle>{type === 'payable' ? "Confirm Batch Payment" : "Confirm Batch Receipt"}</DialogTitle>
+                                                    <DialogDescription>
+                                                        {type === 'payable'
+                                                            ? `Are you sure you want to pay all ${group.settlements.length} debts to ${group.person.name}?`
+                                                            : `Are you sure you want to mark all ${group.settlements.length} debts from ${group.person.name} as received?`
+                                                        }
+                                                    </DialogDescription>
+                                                </DialogHeader>
+                                                <div className="py-4">
+                                                    <Alert>
+                                                        <DollarSign className="h-4 w-4" />
+                                                        <AlertTitle>Total Amount</AlertTitle>
+                                                        <AlertDescription className="font-bold text-lg mt-1">
+                                                            PHP {group.totalAmount.toFixed(2)}
+                                                        </AlertDescription>
+                                                    </Alert>
+                                                </div>
+                                                <DialogFooter>
+                                                    <Button variant="outline" onClick={() => { }}>Cancel</Button>
+                                                    <Button
+                                                        onClick={() => handleBatchAction(group.settlements.map(s => s.id), type === 'payable' ? 'pay' : 'collect')}
+                                                        disabled={processingId !== null}
+                                                        variant={type === 'payable' ? "default" : "outline"}
+                                                        className={type === 'receivable' ? "border-green-600 text-green-600 hover:bg-green-50" : ""}
+                                                    >
+                                                        {processingId === 'batch' ? (
+                                                            <>
+                                                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                                                Processing...
+                                                            </>
+                                                        ) : (
+                                                            "Confirm"
+                                                        )}
+                                                    </Button>
+                                                </DialogFooter>
+                                            </DialogContent>
+                                        </Dialog>
+                                    </div>
+                                </div>
+
+                                <CollapsibleContent>
+                                    <div className="border-t bg-muted/5 px-4">
+                                        <ul className="divide-y divide-border">
+                                            {group.settlements.map((settlement) => (
+                                                <li key={settlement.id} className="py-3 px-2 hover:bg-muted/10 transition-colors">
+                                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                                        <div className="min-w-0 flex-1">
+                                                            <p className="font-medium truncate text-sm">{settlement.expense_description}</p>
+                                                            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+                                                                <span>{new Date(settlement.expense_date).toLocaleDateString()}</span>
+                                                                <span>•</span>
+                                                                <span>Original: PHP {settlement.expense_amount.toFixed(2)}</span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="text-right">
+                                                                <span className="font-semibold text-sm whitespace-nowrap block">
+                                                                    PHP {settlement.amount.toFixed(2)}
+                                                                </span>
+                                                                {settlement.status === 'unconfirmed' && (
+                                                                    <span className="text-[10px] bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded-full">
+                                                                        Unconfirmed
+                                                                    </span>
+                                                                )}
+                                                            </div>
+
+                                                            {type === 'payable' ? (
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant={settlement.status === 'unconfirmed' ? "outline" : "default"}
+                                                                    disabled={settlement.status === 'unconfirmed'}
+                                                                    onClick={() => openPaymentModal(settlement)}
+                                                                    className="h-7 text-xs px-2"
+                                                                >
+                                                                    {settlement.status === 'unconfirmed' ? "Pending" : "Pay"}
+                                                                </Button>
+                                                            ) : (
+                                                                <>
+                                                                    {settlement.status === 'unconfirmed' ? (
+                                                                        <div className="flex gap-1">
+                                                                            {settlement.proof_url && (
+                                                                                <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
+                                                                                    <a href={settlement.proof_url} target="_blank" rel="noreferrer">
+                                                                                        <ArrowUpRight className="h-3 w-3" />
+                                                                                    </a>
+                                                                                </Button>
+                                                                            )}
+                                                                            <Button
+                                                                                size="sm"
+                                                                                variant="outline"
+                                                                                className="h-7 text-xs px-2 text-green-600 border-green-200 hover:bg-green-50"
+                                                                                onClick={() => handleAction(settlement.id, 'verify')}
+                                                                                disabled={processingId !== null}
+                                                                            >
+                                                                                <Check className="h-3 w-3 mr-1" /> Verify
+                                                                            </Button>
+                                                                            <Button
+                                                                                size="sm"
+                                                                                variant="outline"
+                                                                                className="h-7 text-xs px-2 text-red-600 border-red-200 hover:bg-red-50"
+                                                                                onClick={() => handleAction(settlement.id, 'reject')}
+                                                                                disabled={processingId !== null}
+                                                                            >
+                                                                                <XCircle className="h-3 w-3" />
+                                                                            </Button>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <Button
+                                                                            size="sm"
+                                                                            variant="ghost"
+                                                                            onClick={() => handleAction(settlement.id, 'collect')} // Keep legacy 'mark as received' just in case, or disable? Let's keep for manual overrides.
+                                                                            disabled={processingId !== null}
+                                                                            className="h-7 text-xs px-2"
+                                                                        >
+                                                                            Collect
+                                                                        </Button>
+                                                                    )}
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                </CollapsibleContent>
+                            </Collapsible>
+                        </Card>
+                    );
+                })}
             </div>
         );
     };
@@ -267,6 +395,8 @@ export default function PaymentsPage() {
                 </div>
             </div>
 
+            <PaymentSummary payables={payables} receivables={receivables} />
+
             <Tabs defaultValue="payables" className="w-full">
                 <TabsList className="grid w-full grid-cols-2">
                     <TabsTrigger value="payables">I Owe (Payables)</TabsTrigger>
@@ -278,7 +408,19 @@ export default function PaymentsPage() {
                 <TabsContent value="receivables" className="mt-6">
                     <DebtList groups={receivables} type="receivable" />
                 </TabsContent>
-            </Tabs>
-        </div>
+            </Tabs >
+
+            {/* Modal for Payments */}
+            {
+                selectedSettlement && (
+                    <PaymentModal
+                        open={paymentModalOpen}
+                        onOpenChange={setPaymentModalOpen}
+                        settlement={selectedSettlement}
+                        onSuccess={fetchData}
+                    />
+                )
+            }
+        </div >
     );
 }

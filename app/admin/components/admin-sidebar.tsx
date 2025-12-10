@@ -6,58 +6,68 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "@/components/ui/sheet";
-import { useUserRole } from "@/lib/hooks/use-user-role";
 import {
     LayoutDashboard,
     Users,
+    Building2,
     Receipt,
-    BarChart3,
-    Settings,
+    Activity,
     Menu,
-    DollarSign,
-    ChevronLeft,
-    History,
-    FileText,
     Shield,
+    ChevronLeft,
+    ArrowLeft,
 } from "lucide-react";
 
-interface SidebarProps {
-    teamId?: string;
+interface AdminSidebarProps {
     collapsed?: boolean;
     onCollapse?: (collapsed: boolean) => void;
 }
 
-const navigation = [
-    { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-    { name: "Expenses", href: "/dashboard/expenses", icon: Receipt },
-    { name: "Members", href: "/dashboard/members", icon: Users },
-    { name: "Payments", href: "/dashboard/payments", icon: DollarSign },
-    { name: "Logs", href: "/dashboard/logs", icon: History },
-    { name: "Receipts", href: "/dashboard/receipts", icon: FileText },
-    { name: "Reports", href: "/dashboard/reports", icon: BarChart3 },
-    { name: "Settings", href: "/dashboard/settings", icon: Settings },
+const adminNavigation = [
+    { name: "Overview", href: "/admin", icon: LayoutDashboard },
+    { name: "Users", href: "/admin/users", icon: Users },
+    { name: "Teams", href: "/admin/teams", icon: Building2 },
+    { name: "Transactions", href: "/admin/transactions", icon: Receipt },
+    { name: "Activity", href: "/admin/activity", icon: Activity },
 ];
 
-function SidebarContent({ collapsed = false, onNavClick, isSuperAdmin = false }: { collapsed?: boolean; onNavClick?: () => void; isSuperAdmin?: boolean }) {
+function AdminSidebarContent({ collapsed = false, onNavClick }: { collapsed?: boolean; onNavClick?: () => void }) {
     const pathname = usePathname();
 
     return (
         <div className="flex flex-col h-full">
             {/* Logo */}
             <div className="flex items-center gap-2 px-4 py-6 border-b border-border">
-                <div className="bg-primary p-2 rounded-lg">
-                    <DollarSign className="w-5 h-5 text-primary-foreground" />
+                <div className="bg-red-600 p-2 rounded-lg">
+                    <Shield className="w-5 h-5 text-white" />
                 </div>
                 {!collapsed && (
-                    <span className="font-bold text-xl">PayUp</span>
+                    <div className="flex flex-col">
+                        <span className="font-bold text-xl">PayUp</span>
+                        <span className="text-xs text-red-500 font-medium">Admin Panel</span>
+                    </div>
                 )}
+            </div>
+
+            {/* Back to Dashboard Link */}
+            <div className="px-3 py-3 border-b border-border">
+                <Link
+                    href="/dashboard"
+                    className={cn(
+                        "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                        "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    )}
+                >
+                    <ArrowLeft className="w-4 h-4" />
+                    {!collapsed && <span>Back to Dashboard</span>}
+                </Link>
             </div>
 
             {/* Navigation */}
             <nav className="flex-1 px-3 py-4 space-y-1">
-                {navigation.map((item) => {
+                {adminNavigation.map((item) => {
                     const isActive = pathname === item.href ||
-                        (item.href !== "/dashboard" && pathname.startsWith(item.href));
+                        (item.href !== "/admin" && pathname.startsWith(item.href));
 
                     return (
                         <Link
@@ -67,7 +77,7 @@ function SidebarContent({ collapsed = false, onNavClick, isSuperAdmin = false }:
                             className={cn(
                                 "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                                 isActive
-                                    ? "bg-primary text-primary-foreground"
+                                    ? "bg-red-600 text-white"
                                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                             )}
                         >
@@ -76,30 +86,13 @@ function SidebarContent({ collapsed = false, onNavClick, isSuperAdmin = false }:
                         </Link>
                     );
                 })}
-
-                {/* SuperAdmin Link */}
-                {isSuperAdmin && (
-                    <Link
-                        href="/admin"
-                        onClick={onNavClick}
-                        className={cn(
-                            "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors mt-4 border-t border-border pt-4",
-                            pathname.startsWith("/admin")
-                                ? "bg-red-600 text-white"
-                                : "text-red-500 hover:bg-red-500/10 hover:text-red-600"
-                        )}
-                    >
-                        <Shield className="w-5 h-5 flex-shrink-0" />
-                        {!collapsed && <span>Admin Panel</span>}
-                    </Link>
-                )}
             </nav>
 
             {/* Footer */}
             <div className="p-4 border-t border-border">
                 {!collapsed && (
                     <p className="text-xs text-muted-foreground text-center">
-                        © 2025 PayUp
+                        SuperAdmin Access
                     </p>
                 )}
             </div>
@@ -107,9 +100,7 @@ function SidebarContent({ collapsed = false, onNavClick, isSuperAdmin = false }:
     );
 }
 
-export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
-    const { isSuperAdmin } = useUserRole();
-
+export function AdminSidebar({ collapsed = false, onCollapse }: AdminSidebarProps) {
     return (
         <aside
             className={cn(
@@ -117,7 +108,7 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
                 collapsed ? "w-[70px]" : "w-[240px]"
             )}
         >
-            <SidebarContent collapsed={collapsed} isSuperAdmin={isSuperAdmin} />
+            <AdminSidebarContent collapsed={collapsed} />
 
             {/* Collapse button */}
             <Button
@@ -132,24 +123,23 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
     );
 }
 
-export function MobileSidebar() {
+export function MobileAdminSidebar() {
     const [open, setOpen] = useState(false);
-    const { isSuperAdmin } = useUserRole();
 
     return (
         <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger asChild>
                 <Button variant="ghost" size="icon" className="md:hidden">
                     <Menu className="h-5 w-5" />
-                    <span className="sr-only">Toggle menu</span>
+                    <span className="sr-only">Toggle admin menu</span>
                 </Button>
             </SheetTrigger>
             <SheetContent side="left" className="p-0 w-[240px]">
-                <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
+                <SheetTitle className="sr-only">Admin Navigation Menu</SheetTitle>
                 <SheetDescription className="sr-only">
-                    Mobile navigation sidebar to access dashboard, expenses, members, reports, and settings.
+                    Admin navigation sidebar to access users, teams, transactions, and activity logs.
                 </SheetDescription>
-                <SidebarContent onNavClick={() => setOpen(false)} isSuperAdmin={isSuperAdmin} />
+                <AdminSidebarContent onNavClick={() => setOpen(false)} />
             </SheetContent>
         </Sheet>
     );

@@ -9,12 +9,14 @@ generator client {
 }
 
 model User {
-  id         String    @id
-  name       String
-  email      String    
-  created_at DateTime  @default(now())
-  updated_at DateTime  @updatedAt
-  deleted_at DateTime?
+  id           String    @id
+  name         String
+  email        String
+  gcash_number String?
+  role         UserRole  @default(Client)
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  deleted_at   DateTime?
 
   teams      TeamMember[]
   activities ActivityLog[]
@@ -37,10 +39,21 @@ model Expense {
   team_id     String?
   team        Team?     @relation(fields: [team_id], references: [id])
   settlements Settlement[]
+
+  // Monthly Payment Mode Fields
+  is_monthly        Boolean   @default(false)
+  total_months      Int?      // Total number of months for the payment plan
+  month_number      Int?      // Which month (1, 2, 3, ...) in the series
+  parent_expense_id String?   // Links child monthly expenses to parent expense
+  parent_expense    Expense?  @relation("MonthlyExpenses", fields: [parent_expense_id], references: [id])
+  child_expenses    Expense[] @relation("MonthlyExpenses")
+  deadline          DateTime? // Payment deadline (for monthly payment expenses only)
+  deadline_day      Int?      // Day of month for recurring deadline (1-31)
   
   @@index([team_id, deleted_at])
   @@index([created_at])
   @@index([paid_by])
+  @@index([parent_expense_id])
   @@map("expenses")
 }
 
@@ -50,6 +63,8 @@ model Settlement {
   owed_by     String
   amount_owed Float
   status      Status
+  payment_method PaymentMethod?
+  proof_url   String?
   paid_at     DateTime?
   created_at  DateTime  @default(now())
   updated_at  DateTime  @updatedAt
@@ -68,12 +83,23 @@ model Settlement {
 
 enum Status {
   pending
+  unconfirmed
   paid
+}
+
+enum PaymentMethod {
+  CASH
+  GCASH
 }
 
 enum TeamRole {
   ADMIN
   MEMBER
+}
+
+enum UserRole {
+  Client
+  SuperAdmin
 }
 
 model Team {
