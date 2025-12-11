@@ -1,7 +1,7 @@
 datasource db {
   provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  url       = env("DATABASE_URL") // Pooled connection (PgBouncer) for queries
+  directUrl = env("DIRECT_URL") // Direct connection for migrations
 }
 
 generator client {
@@ -21,6 +21,8 @@ model User {
   teams      TeamMember[]
   activities ActivityLog[]
 
+  @@index([email]) // Email lookup
+  @@index([role, deleted_at]) // Role filtering
   @@map("users")
 }
 
@@ -37,49 +39,51 @@ model Expense {
   deleted_at  DateTime?
 
   team_id     String?
-  team        Team?     @relation(fields: [team_id], references: [id])
+  team        Team?        @relation(fields: [team_id], references: [id])
   settlements Settlement[]
 
   // Monthly Payment Mode Fields
   is_monthly        Boolean   @default(false)
-  total_months      Int?      // Total number of months for the payment plan
-  month_number      Int?      // Which month (1, 2, 3, ...) in the series
-  parent_expense_id String?   // Links child monthly expenses to parent expense
+  total_months      Int? // Total number of months for the payment plan
+  month_number      Int? // Which month (1, 2, 3, ...) in the series
+  parent_expense_id String? // Links child monthly expenses to parent expense
   parent_expense    Expense?  @relation("MonthlyExpenses", fields: [parent_expense_id], references: [id])
   child_expenses    Expense[] @relation("MonthlyExpenses")
   deadline          DateTime? // Payment deadline (for monthly payment expenses only)
-  deadline_day      Int?      // Day of month for recurring deadline (1-31)
-  
-  @@index([team_id, deleted_at])
-  @@index([created_at])
-  @@index([paid_by])
-  @@index([parent_expense_id])
+  deadline_day      Int? // Day of month for recurring deadline (1-31)
+
+  // Optimized composite indexes for common query patterns
+  @@index([team_id, deleted_at, created_at]) // Main listing query
+  @@index([team_id, deleted_at]) // Quick team filter
+  @@index([paid_by, deleted_at]) // User's expenses
+  @@index([parent_expense_id]) // Monthly expense lookup
+  @@index([created_at]) // Date sorting
   @@map("expenses")
 }
 
 model Settlement {
-  id          String    @id @default(uuid())
-  expense_id  String
-  owed_by     String
-  amount_owed Float
-  status      Status
+  id             String         @id @default(uuid())
+  expense_id     String
+  owed_by        String
+  amount_owed    Float
+  status         Status
   payment_method PaymentMethod?
-  proof_url   String?
-  paid_at     DateTime?
-  created_at  DateTime  @default(now())
-  updated_at  DateTime  @updatedAt
-  deleted_at  DateTime?
+  proof_url      String?
+  paid_at        DateTime?
+  created_at     DateTime       @default(now())
+  updated_at     DateTime       @updatedAt
+  deleted_at     DateTime?
 
-  expense     Expense   @relation(fields: [expense_id], references: [id], onDelete: Cascade)
+  expense Expense @relation(fields: [expense_id], references: [id], onDelete: Cascade)
 
-  @@index([expense_id, deleted_at])
-  @@index([owed_by])
-  @@index([status])
-  @@index([created_at])
+  // Optimized composite indexes for common query patterns
+  @@index([expense_id, status, deleted_at]) // Settlement status lookup
+  @@index([owed_by, status, deleted_at]) // User's pending debts
+  @@index([expense_id, deleted_at]) // Expense settlements
+  @@index([status, deleted_at]) // Status filtering
+  @@index([created_at]) // Date sorting
   @@map("settlements")
 }
-
-
 
 enum Status {
   pending
@@ -103,11 +107,11 @@ enum UserRole {
 }
 
 model Team {
-  id         String       @id @default(uuid())
+  id         String        @id @default(uuid())
   name       String
-  code       String       @unique
-  created_at DateTime     @default(now())
-  updated_at DateTime     @updatedAt
+  code       String        @unique
+  created_at DateTime      @default(now())
+  updated_at DateTime      @updatedAt
   members    TeamMember[]
   expenses   Expense[]
   activities ActivityLog[]
@@ -131,16 +135,17 @@ model TeamMember {
 }
 
 model ActivityLog {
-  id          String   @id @default(uuid())
-  team_id     String
-  user_id     String
-  action      String
-  details     String
-  created_at  DateTime @default(now())
+  id         String   @id @default(uuid())
+  team_id    String
+  user_id    String
+  action     String
+  details    String
+  created_at DateTime @default(now())
 
-  team        Team     @relation(fields: [team_id], references: [id], onDelete: Cascade)
-  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  team Team @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
-  @@index([team_id, created_at])
+  @@index([team_id, created_at]) // Team activity timeline
+  @@index([user_id, created_at]) // User activity history
   @@map("activity_logs")
 }

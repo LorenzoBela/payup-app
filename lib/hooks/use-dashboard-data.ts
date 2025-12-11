@@ -1,6 +1,6 @@
 "use client";
 
-import useSWR from "swr";
+import useSWR, { SWRConfiguration } from "swr";
 import useSWRInfinite from "swr/infinite";
 import { 
     getTeamExpenses, 
@@ -11,18 +11,30 @@ import {
 import { getTeamLogs } from "@/app/actions/logs";
 import { getTeamMembers } from "@/app/actions/teams";
 
-// SWR configuration for optimal performance
-const swrConfig = {
-    revalidateOnFocus: false, // Don't refetch on window focus (reduce API calls)
-    revalidateOnReconnect: true,
-    dedupingInterval: 5000, // Dedupe requests within 5 seconds
-    errorRetryCount: 2,
+// Optimized SWR configuration for high performance
+const swrConfig: SWRConfiguration = {
+    revalidateOnFocus: false,       // Don't refetch on window focus (reduce API calls)
+    revalidateOnReconnect: true,    // Refetch when network reconnects
+    dedupingInterval: 10000,        // Dedupe requests within 10 seconds (increased from 5s)
+    errorRetryCount: 2,             // Retry failed requests twice
+    errorRetryInterval: 3000,       // Wait 3 seconds between retries
+    keepPreviousData: true,         // Keep showing old data while fetching new (prevents flash)
+    focusThrottleInterval: 30000,   // Throttle focus revalidation
+    loadingTimeout: 5000,           // Show loading after 5 seconds
 };
 
 // Fast refresh config for data that updates frequently
-const fastRefreshConfig = {
+const fastRefreshConfig: SWRConfiguration = {
     ...swrConfig,
-    refreshInterval: 30000, // Refresh every 30 seconds
+    refreshInterval: 30000,         // Refresh every 30 seconds
+    revalidateIfStale: true,        // Revalidate stale data automatically
+};
+
+// Config for data that rarely changes
+const stableDataConfig: SWRConfiguration = {
+    ...swrConfig,
+    dedupingInterval: 60000,        // Dedupe for 60 seconds
+    refreshInterval: 120000,        // Refresh every 2 minutes
 };
 
 // Type definitions
@@ -137,7 +149,9 @@ export function useTeamExpenses(teamId: string | null, pageSize = 20) {
         {
             ...swrConfig,
             revalidateFirstPage: true,
-            parallel: false, // Load pages sequentially
+            parallel: false,              // Load pages sequentially
+            persistSize: true,            // Persist page size across revalidations
+            revalidateOnMount: true,      // Ensure fresh data on mount
         }
     );
 
@@ -179,6 +193,8 @@ export function useTeamSettlements(teamId: string | null, pageSize = 15) {
             ...swrConfig,
             revalidateFirstPage: true,
             parallel: false,
+            persistSize: true,
+            revalidateOnMount: true,
         }
     );
 
@@ -219,6 +235,8 @@ export function useTeamLogs(teamId: string | null, pageSize = 30) {
             ...swrConfig,
             revalidateFirstPage: true,
             parallel: false,
+            persistSize: true,
+            revalidateOnMount: true,
         }
     );
 
@@ -241,7 +259,7 @@ export function useTeamMembers(teamId: string | null) {
     const { data, error, isLoading, mutate } = useSWR<Member[]>(
         teamId ? ["members", teamId] : null,
         () => getTeamMembers(teamId!),
-        swrConfig
+        stableDataConfig // Use stable config since members rarely change
     );
 
     return {
@@ -260,5 +278,33 @@ export function useInvalidateDashboard() {
         // Note: For full cache invalidation, use useSWRConfig's mutate with filter
         console.log(`Dashboard cache invalidated for team: ${teamId}`);
     };
+}
+
+// Prefetch utility - call this to warm up the cache before navigation
+export async function prefetchDashboardData(teamId: string) {
+    if (!teamId) return;
+    
+    try {
+        // Prefetch all dashboard data in parallel
+        await Promise.all([
+            getDashboardData(teamId),
+            getTeamBalances(teamId),
+            getTeamMembers(teamId),
+        ]);
+    } catch (error) {
+        // Silently fail prefetch - it's just an optimization
+        console.warn("Prefetch failed:", error);
+    }
+}
+
+// Prefetch team expenses for navigation
+export async function prefetchTeamExpenses(teamId: string) {
+    if (!teamId) return;
+    
+    try {
+        await getTeamExpenses(teamId, { limit: 20 });
+    } catch (error) {
+        console.warn("Expense prefetch failed:", error);
+    }
 }
 

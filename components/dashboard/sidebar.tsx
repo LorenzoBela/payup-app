@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "@/components/ui/sheet";
@@ -40,6 +40,12 @@ const navigation = [
 
 function SidebarContent({ collapsed = false, onNavClick, isSuperAdmin = false }: { collapsed?: boolean; onNavClick?: () => void; isSuperAdmin?: boolean }) {
     const pathname = usePathname();
+    const router = useRouter();
+    
+    // Prefetch route on hover for instant navigation
+    const handleMouseEnter = useCallback((href: string) => {
+        router.prefetch(href);
+    }, [router]);
 
     return (
         <div className="flex flex-col h-full">
@@ -64,6 +70,8 @@ function SidebarContent({ collapsed = false, onNavClick, isSuperAdmin = false }:
                             key={item.name}
                             href={item.href}
                             onClick={onNavClick}
+                            onMouseEnter={() => handleMouseEnter(item.href)}
+                            prefetch={true}
                             className={cn(
                                 "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                                 isActive

@@ -5,10 +5,91 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CheckCircle, Clock, Loader2 } from "lucide-react";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { markSettlementAsPaid } from "@/app/actions/expenses";
 import { useTeamSettlements } from "@/lib/hooks/use-dashboard-data";
 import { toast } from "sonner";
+
+// Memoized settlement item component for better performance
+interface SettlementItemProps {
+  settlement: {
+    id: string;
+    expense_description: string;
+    owed_by: string;
+    owed_to: string;
+    amount: number;
+    status: string;
+    isCurrentUserOwing: boolean;
+  };
+  isMarking: boolean;
+  onMarkAsPaid: (id: string) => void;
+}
+
+const SettlementItem = memo(function SettlementItem({
+  settlement,
+  isMarking,
+  onMarkAsPaid,
+}: SettlementItemProps) {
+  return (
+    <div className="p-4 border border-border rounded-lg space-y-3 hover:bg-muted/30 transition-colors">
+      <div className="flex items-start justify-between">
+        <div className="space-y-1">
+          <p className="text-sm font-medium">
+            {settlement.isCurrentUserOwing ? (
+              <>
+                You owe <span className="text-primary font-semibold">{settlement.owed_to}</span>
+              </>
+            ) : (
+              <>
+                <span className="text-primary font-semibold">{settlement.owed_by}</span> owes you
+              </>
+            )}
+          </p>
+          <p className="text-xs text-muted-foreground line-clamp-1">
+            {settlement.expense_description}
+          </p>
+        </div>
+        <Badge
+          variant={settlement.status === "paid" ? "default" : "secondary"}
+          className={
+            settlement.status === "paid"
+              ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+              : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
+          }
+        >
+          {settlement.status === "paid" ? (
+            <CheckCircle className="w-3 h-3 mr-1" />
+          ) : (
+            <Clock className="w-3 h-3 mr-1" />
+          )}
+          {settlement.status}
+        </Badge>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <span className="text-lg font-bold">
+          ₱{settlement.amount.toFixed(2)}
+        </span>
+        {settlement.status === "pending" && settlement.isCurrentUserOwing && (
+          <Button
+            size="sm"
+            onClick={() => onMarkAsPaid(settlement.id)}
+            disabled={isMarking}
+          >
+            {isMarking ? (
+              <>
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                Marking...
+              </>
+            ) : (
+              "Mark as Paid"
+            )}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+});
 
 interface SettlementsListProps {
   teamId: string;
@@ -63,15 +144,35 @@ export function SettlementsList({ teamId, refreshKey }: SettlementsListProps) {
 
   const handleMarkAsPaid = async (settlementId: string) => {
     setMarkingId(settlementId);
+    
+    // Optimistic update - immediately update status in UI
+    mutate(
+      (current) => {
+        if (!current) return current;
+        return current.map(page => ({
+          ...page,
+          settlements: page.settlements.map((s: { id: string; status: string }) => 
+            s.id === settlementId ? { ...s, status: 'unconfirmed' } : s
+          )
+        }));
+      },
+      { revalidate: false }
+    );
+    
     try {
       const result = await markSettlementAsPaid(settlementId);
       if (result.error) {
+        // Rollback on error
+        mutate();
         toast.error(result.error);
       } else {
-        toast.success("Marked as paid!");
-        mutate(); // Revalidate cache
+        toast.success("Payment submitted!");
+        // Revalidate for consistency
+        mutate();
       }
     } catch {
+      // Rollback on exception
+      mutate();
       toast.error("Failed to mark as paid");
     } finally {
       setMarkingId(null);
@@ -121,66 +222,12 @@ export function SettlementsList({ teamId, refreshKey }: SettlementsListProps) {
         ) : (
           <>
             {settlements.map((settlement) => (
-              <div
+              <SettlementItem
                 key={settlement.id}
-                className="p-4 border border-border rounded-lg space-y-3 hover:bg-muted/30 transition-colors"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium">
-                      {settlement.isCurrentUserOwing ? (
-                        <>
-                          You owe <span className="text-primary font-semibold">{settlement.owed_to}</span>
-                        </>
-                      ) : (
-                        <>
-                          <span className="text-primary font-semibold">{settlement.owed_by}</span> owes you
-                        </>
-                      )}
-                    </p>
-                    <p className="text-xs text-muted-foreground line-clamp-1">
-                      {settlement.expense_description}
-                    </p>
-                  </div>
-                  <Badge
-                    variant={settlement.status === "paid" ? "default" : "secondary"}
-                    className={
-                      settlement.status === "paid"
-                        ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
-                        : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
-                    }
-                  >
-                    {settlement.status === "paid" ? (
-                      <CheckCircle className="w-3 h-3 mr-1" />
-                    ) : (
-                      <Clock className="w-3 h-3 mr-1" />
-                    )}
-                    {settlement.status}
-                  </Badge>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-lg font-bold">
-                    ₱{settlement.amount.toFixed(2)}
-                  </span>
-                  {settlement.status === "pending" && settlement.isCurrentUserOwing && (
-                    <Button
-                      size="sm"
-                      onClick={() => handleMarkAsPaid(settlement.id)}
-                      disabled={markingId === settlement.id}
-                    >
-                      {markingId === settlement.id ? (
-                        <>
-                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                          Marking...
-                        </>
-                      ) : (
-                        "Mark as Paid"
-                      )}
-                    </Button>
-                  )}
-                </div>
-              </div>
+                settlement={settlement}
+                isMarking={markingId === settlement.id}
+                onMarkAsPaid={handleMarkAsPaid}
+              />
             ))}
             
             {/* Infinite scroll trigger */}
