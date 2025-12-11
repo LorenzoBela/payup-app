@@ -20,6 +20,12 @@ export async function syncUserToSupabase() {
             (email: { id: string; emailAddress: string }) => email.id === user.primaryEmailAddressId
         )?.emailAddress;
 
+        // Build full name from firstName and lastName, falling back to fullName or "Unknown"
+        const fullName = [user.firstName, user.lastName]
+            .filter(Boolean)
+            .join(" ")
+            .trim() || user.fullName || "Unknown";
+
         // Use Prisma upsert - bypasses RLS since Prisma uses direct connection
         // IMPORTANT: We explicitly DO NOT include 'role' in create/update
         // New users automatically get 'Client' role via database default
@@ -28,12 +34,12 @@ export async function syncUserToSupabase() {
             where: { id: user.id },
             update: {
                 // Only update name and email - NEVER touch role
-                name: user.fullName || user.username || "Unknown",
+                name: fullName,
                 email: email || "",
             },
             create: {
                 id: user.id,
-                name: user.fullName || user.username || "Unknown",
+                name: fullName,
                 email: email || "",
                 // role is intentionally omitted - uses database default 'Client'
             },
@@ -95,3 +101,61 @@ export async function getGcashNumber() {
         return { number: null };
     }
 }
+
+/**
+ * Deletes the current user's account.
+ * SECURITY: This performs a soft delete by setting deleted_at.
+ * User must first leave/transfer all teams where they are the sole admin.
+ */
+export async function deleteAccount() {
+    try {
+        const user = await currentUser();
+        if (!user) {
+            return { error: "Not authenticated" };
+        }
+
+        // Check if user is sole admin of any team
+        const teamMemberships = await prisma.teamMember.findMany({
+            where: { user_id: user.id },
+            include: {
+                team: {
+                    include: {
+                        members: {
+                            where: { role: "ADMIN" },
+                            select: { user_id: true },
+                        },
+                    },
+                },
+            },
+        });
+
+        // Find teams where user is the only admin
+        const teamsWithSoleAdmin = teamMemberships.filter(
+            (m) => m.role === "ADMIN" && m.team.members.length === 1
+        );
+
+        if (teamsWithSoleAdmin.length > 0) {
+            const teamNames = teamsWithSoleAdmin.map((t) => t.team.name).join(", ");
+            return {
+                error: `Cannot delete account: You are the only admin of: ${teamNames}. Please assign another admin or delete these teams first.`,
+            };
+        }
+
+        // Remove from all teams first
+        await prisma.teamMember.deleteMany({
+            where: { user_id: user.id },
+        });
+
+        // Soft delete user account (set deleted_at)
+        await prisma.user.update({
+            where: { id: user.id },
+            data: { deleted_at: new Date() },
+        });
+
+        return { success: true };
+    } catch (error) {
+        console.error("Error deleting account:", error);
+        return { error: "Failed to delete account" };
+    }
+}
+

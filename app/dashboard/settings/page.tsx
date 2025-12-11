@@ -17,7 +17,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTeam } from "@/components/dashboard/team-provider";
-import { renameTeam, removeTeamMember, getTeamMembers } from "@/app/actions/teams";
+import { renameTeam, removeTeamMember, getTeamMembers, leaveTeam } from "@/app/actions/teams";
+import { deleteAccount } from "@/app/actions/auth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -26,7 +27,20 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Users, MoreVertical, LogOut, Copy } from "lucide-react";
+import { useClerk } from "@clerk/nextjs";
+
 
 export default function SettingsPage() {
     const [notifications, setNotifications] = useState(true);
@@ -38,6 +52,10 @@ export default function SettingsPage() {
     const [members, setMembers] = useState<any[]>([]);
     const [loadingMembers, setLoadingMembers] = useState(false);
     const [isRenaming, setIsRenaming] = useState(false);
+    const [isLeavingTeam, setIsLeavingTeam] = useState(false);
+    const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+    const { signOut } = useClerk();
+
 
     // Initialize team name
     useEffect(() => {
@@ -112,6 +130,45 @@ export default function SettingsPage() {
         if (selectedTeam?.code) {
             navigator.clipboard.writeText(selectedTeam.code);
             toast.success("Team code copied to clipboard");
+        }
+    };
+
+    const handleLeaveTeam = async () => {
+        if (!selectedTeam) return;
+
+        setIsLeavingTeam(true);
+        try {
+            const result = await leaveTeam(selectedTeam.id);
+
+            if (result.error) {
+                toast.error(result.error);
+            } else {
+                toast.success("You have left the team");
+                await refreshTeams();
+            }
+        } catch (error) {
+            toast.error("Failed to leave team");
+        } finally {
+            setIsLeavingTeam(false);
+        }
+    };
+
+    const handleDeleteAccount = async () => {
+        setIsDeletingAccount(true);
+        try {
+            const result = await deleteAccount();
+
+            if (result.error) {
+                toast.error(result.error);
+                setIsDeletingAccount(false);
+            } else {
+                toast.success("Account deleted successfully");
+                // Sign out of Clerk after account deletion
+                await signOut({ redirectUrl: "/" });
+            }
+        } catch (error) {
+            toast.error("Failed to delete account");
+            setIsDeletingAccount(false);
         }
     };
 
@@ -297,6 +354,7 @@ export default function SettingsPage() {
                 </CardContent>
             </Card>
 
+
             {/* Danger Zone */}
             <Card className="border-destructive/50">
                 <CardHeader>
@@ -307,18 +365,48 @@ export default function SettingsPage() {
                     <CardDescription>Irreversible and destructive actions</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                    <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                            <Label>Leave Team</Label>
-                            <p className="text-sm text-muted-foreground">
-                                Leave the current team (cannot be undone)
-                            </p>
-                        </div>
-                        <Button variant="outline" className="text-destructive border-destructive/50">
-                            Leave Team
-                        </Button>
-                    </div>
-                    <Separator />
+                    {selectedTeam && (
+                        <>
+                            <div className="flex items-center justify-between">
+                                <div className="space-y-0.5">
+                                    <Label>Leave Team</Label>
+                                    <p className="text-sm text-muted-foreground">
+                                        Leave {selectedTeam.name} (cannot be undone)
+                                    </p>
+                                </div>
+                                <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            className="text-destructive border-destructive/50"
+                                            disabled={isLeavingTeam}
+                                        >
+                                            <LogOut className="w-4 h-4 mr-2" />
+                                            {isLeavingTeam ? "Leaving..." : "Leave Team"}
+                                        </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                            <AlertDialogTitle>Leave {selectedTeam.name}?</AlertDialogTitle>
+                                            <AlertDialogDescription>
+                                                Are you sure you want to leave this team? You will lose access to all expenses and settlements in this team. This action cannot be undone.
+                                            </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                            <AlertDialogAction
+                                                onClick={handleLeaveTeam}
+                                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                            >
+                                                Leave Team
+                                            </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                </AlertDialog>
+                            </div>
+                            <Separator />
+                        </>
+                    )}
                     <div className="flex items-center justify-between">
                         <div className="space-y-0.5">
                             <Label>Delete Account</Label>
@@ -326,11 +414,33 @@ export default function SettingsPage() {
                                 Permanently delete your account and all data
                             </p>
                         </div>
-                        <Button variant="destructive">
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            Delete Account
-                        </Button>
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                                <Button variant="destructive" disabled={isDeletingAccount}>
+                                    <Trash2 className="w-4 h-4 mr-2" />
+                                    {isDeletingAccount ? "Deleting..." : "Delete Account"}
+                                </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Delete your account?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        This action cannot be undone. This will permanently delete your account and remove you from all teams. All your expense data will be preserved for other team members.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction
+                                        onClick={handleDeleteAccount}
+                                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                    >
+                                        Delete Account
+                                    </AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
                     </div>
+
                 </CardContent>
             </Card>
 

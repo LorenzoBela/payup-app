@@ -1,16 +1,44 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { getAllUsers } from "@/app/actions/admin";
+import { getAllUsers, softDeleteUser } from "@/app/actions/admin";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Search, Users, Shield, ChevronLeft, ChevronRight, AlertCircle } from "lucide-react";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import {
+    Loader2,
+    Search,
+    Users,
+    Shield,
+    ChevronLeft,
+    ChevronRight,
+    AlertCircle,
+    MoreHorizontal,
+    Eye,
+    Trash2
+} from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import Link from "next/link";
+import { toast } from "sonner";
 
 interface User {
     id: string;
@@ -30,6 +58,9 @@ export default function AdminUsersPage() {
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [total, setTotal] = useState(0);
+    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+    const [userToDelete, setUserToDelete] = useState<User | null>(null);
+    const [isDeleting, setIsDeleting] = useState(false);
 
     const fetchUsers = useCallback(async () => {
         setLoading(true);
@@ -60,13 +91,39 @@ export default function AdminUsersPage() {
         fetchUsers();
     };
 
+    const handleDeleteClick = (user: User) => {
+        setUserToDelete(user);
+        setDeleteDialogOpen(true);
+    };
+
+    const handleConfirmDelete = async () => {
+        if (!userToDelete) return;
+
+        setIsDeleting(true);
+        try {
+            const result = await softDeleteUser(userToDelete.id);
+            if (result.success) {
+                toast.success(result.message);
+                fetchUsers();
+            } else {
+                toast.error(result.error);
+            }
+        } catch {
+            toast.error("Failed to delete user");
+        } finally {
+            setIsDeleting(false);
+            setDeleteDialogOpen(false);
+            setUserToDelete(null);
+        }
+    };
+
     return (
         <div className="space-y-6">
             {/* Header */}
             <div>
                 <h1 className="text-3xl font-bold tracking-tight">Users Management</h1>
                 <p className="text-muted-foreground">
-                    View all users in the system. Roles can only be modified in Supabase Dashboard.
+                    View and manage all users in the system. Roles can only be modified in Supabase Dashboard.
                 </p>
             </div>
 
@@ -74,8 +131,8 @@ export default function AdminUsersPage() {
             <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
-                    User roles are <strong>read-only</strong> in this interface. To promote a user to SuperAdmin, 
-                    you must manually edit the <code className="bg-muted px-1 rounded">role</code> field directly 
+                    User roles are <strong>read-only</strong> in this interface. To promote a user to SuperAdmin,
+                    you must manually edit the <code className="bg-muted px-1 rounded">role</code> field directly
                     in the Supabase Dashboard table editor.
                 </AlertDescription>
             </Alert>
@@ -130,6 +187,7 @@ export default function AdminUsersPage() {
                                             <TableHead>Teams</TableHead>
                                             <TableHead>GCash</TableHead>
                                             <TableHead>Joined</TableHead>
+                                            <TableHead className="w-[70px]">Actions</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -137,7 +195,12 @@ export default function AdminUsersPage() {
                                             <TableRow key={user.id}>
                                                 <TableCell>
                                                     <div>
-                                                        <p className="font-medium">{user.name}</p>
+                                                        <Link
+                                                            href={`/admin/users/${user.id}`}
+                                                            className="font-medium hover:underline"
+                                                        >
+                                                            {user.name}
+                                                        </Link>
                                                         <p className="text-xs text-muted-foreground">{user.email}</p>
                                                     </div>
                                                 </TableCell>
@@ -163,6 +226,35 @@ export default function AdminUsersPage() {
                                                 </TableCell>
                                                 <TableCell className="text-muted-foreground text-sm">
                                                     {formatDistanceToNow(new Date(user.created_at), { addSuffix: true })}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <DropdownMenu>
+                                                        <DropdownMenuTrigger asChild>
+                                                            <Button variant="ghost" size="icon">
+                                                                <MoreHorizontal className="h-4 w-4" />
+                                                            </Button>
+                                                        </DropdownMenuTrigger>
+                                                        <DropdownMenuContent align="end">
+                                                            <DropdownMenuItem asChild>
+                                                                <Link href={`/admin/users/${user.id}`}>
+                                                                    <Eye className="h-4 w-4 mr-2" />
+                                                                    View Details
+                                                                </Link>
+                                                            </DropdownMenuItem>
+                                                            {user.role !== "SuperAdmin" && (
+                                                                <>
+                                                                    <DropdownMenuSeparator />
+                                                                    <DropdownMenuItem
+                                                                        className="text-destructive"
+                                                                        onClick={() => handleDeleteClick(user)}
+                                                                    >
+                                                                        <Trash2 className="h-4 w-4 mr-2" />
+                                                                        Delete User
+                                                                    </DropdownMenuItem>
+                                                                </>
+                                                            )}
+                                                        </DropdownMenuContent>
+                                                    </DropdownMenu>
                                                 </TableCell>
                                             </TableRow>
                                         ))}
@@ -204,7 +296,38 @@ export default function AdminUsersPage() {
                     )}
                 </CardContent>
             </Card>
+
+            {/* Delete Confirmation Dialog */}
+            <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Delete User</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to delete &quot;{userToDelete?.name}&quot;?
+                            This will soft-delete the user, making them unable to log in.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={handleConfirmDelete}
+                            disabled={isDeleting}
+                        >
+                            {isDeleting ? (
+                                <>
+                                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                    Deleting...
+                                </>
+                            ) : (
+                                "Delete User"
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
-

@@ -272,3 +272,55 @@ export async function removeTeamMember(teamId: string, memberId: string) {
         return { error: "Failed to remove member" };
     }
 }
+
+export async function leaveTeam(teamId: string) {
+    try {
+        const user = await currentUser();
+        if (!user) return { error: "Not authenticated" };
+
+        // Find user's membership in this team
+        const membership = await prisma.teamMember.findUnique({
+            where: {
+                team_id_user_id: {
+                    team_id: teamId,
+                    user_id: user.id,
+                },
+            },
+        });
+
+        if (!membership) {
+            return { error: "You are not a member of this team" };
+        }
+
+        // If user is an admin, check if they're the only admin
+        if (membership.role === TeamRole.ADMIN) {
+            const adminCount = await prisma.teamMember.count({
+                where: {
+                    team_id: teamId,
+                    role: TeamRole.ADMIN,
+                },
+            });
+
+            if (adminCount <= 1) {
+                return { error: "Cannot leave team: You are the only admin. Please assign another admin first or delete the team." };
+            }
+        }
+
+        // Remove user from team
+        await prisma.teamMember.delete({
+            where: {
+                team_id_user_id: {
+                    team_id: teamId,
+                    user_id: user.id,
+                },
+            },
+        });
+
+        revalidatePath("/dashboard");
+        return { success: true };
+    } catch (error) {
+        console.error("Error leaving team:", error);
+        return { error: "Failed to leave team" };
+    }
+}
+
