@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import { useTeam } from "@/components/dashboard/team-provider";
 import { getMyPendingSettlements, getMyReceivables, markSettlementAsPaid, markSettlementsAsPaid, verifySettlement, rejectSettlement } from "@/app/actions/expenses";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Loader2, DollarSign, Wallet, CheckCircle2, ArrowUpRight, ArrowDownLeft, ChevronDown, ChevronUp, XCircle, Check } from "lucide-react";
+import { getGcashNumber, updateGcashNumber } from "@/app/actions/auth";
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
+import { Loader2, DollarSign, Wallet, CheckCircle2, ArrowUpRight, ArrowDownLeft, ChevronDown, ChevronUp, XCircle, Check, Smartphone, Edit2, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { PaymentModal } from "@/components/dashboard/payment-modal";
 import {
@@ -57,6 +59,12 @@ export default function PaymentsPage() {
     const [processingId, setProcessingId] = useState<string | null>(null);
     const [paymentModalOpen, setPaymentModalOpen] = useState(false);
     const [selectedSettlement, setSelectedSettlement] = useState<any>(null);
+
+    // GCash number state
+    const [myGcashNumber, setMyGcashNumber] = useState<string>("");
+    const [isEditingGcash, setIsEditingGcash] = useState(false);
+    const [savingGcash, setSavingGcash] = useState(false);
+    const [gcashInput, setGcashInput] = useState<string>("");
 
     const fetchData = async () => {
         if (!selectedTeam) return;
@@ -118,6 +126,41 @@ export default function PaymentsPage() {
     useEffect(() => {
         fetchData();
     }, [selectedTeam]);
+
+    // Fetch user's GCash number on mount
+    useEffect(() => {
+        const fetchGcash = async () => {
+            const result = await getGcashNumber();
+            if (result.number) {
+                setMyGcashNumber(result.number);
+                setGcashInput(result.number);
+            }
+        };
+        fetchGcash();
+    }, []);
+
+    const handleSaveGcash = async () => {
+        setSavingGcash(true);
+        try {
+            const result = await updateGcashNumber(gcashInput);
+            if (result.error) {
+                toast.error(result.error);
+            } else {
+                toast.success("GCash number saved successfully!");
+                setMyGcashNumber(gcashInput);
+                setIsEditingGcash(false);
+            }
+        } catch (error) {
+            toast.error("Failed to save GCash number");
+        } finally {
+            setSavingGcash(false);
+        }
+    };
+
+    const handleCancelEdit = () => {
+        setGcashInput(myGcashNumber);
+        setIsEditingGcash(false);
+    };
 
     const handleAction = async (settlementId: string, type: 'pay' | 'collect' | 'verify' | 'reject') => {
         setProcessingId(settlementId);
@@ -396,6 +439,83 @@ export default function PaymentsPage() {
             </div>
 
             <PaymentSummary payables={payables} receivables={receivables} />
+
+            {/* GCash Number Settings */}
+            <Card className="border-blue-200 bg-gradient-to-r from-blue-50 to-blue-100/50 dark:from-blue-950/20 dark:to-blue-900/10 dark:border-blue-800">
+                <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-full bg-blue-500 text-white">
+                                <Smartphone className="w-5 h-5" />
+                            </div>
+                            <div>
+                                <CardTitle className="text-lg">GCash Number</CardTitle>
+                                <CardDescription className="text-sm">
+                                    Set your GCash number so others can pay you via GCash
+                                </CardDescription>
+                            </div>
+                        </div>
+                        {!isEditingGcash && myGcashNumber && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setIsEditingGcash(true)}
+                                className="text-blue-600 hover:text-blue-700 hover:bg-blue-100"
+                            >
+                                <Edit2 className="w-4 h-4 mr-1" /> Edit
+                            </Button>
+                        )}
+                    </div>
+                </CardHeader>
+                <CardContent>
+                    {isEditingGcash || !myGcashNumber ? (
+                        <div className="flex gap-2 items-center">
+                            <Input
+                                placeholder="09xxxxxxxxx"
+                                value={gcashInput}
+                                onChange={(e) => setGcashInput(e.target.value)}
+                                className="max-w-xs bg-white dark:bg-gray-900"
+                            />
+                            <Button
+                                onClick={handleSaveGcash}
+                                disabled={savingGcash || !gcashInput}
+                                size="sm"
+                                className="bg-blue-600 hover:bg-blue-700"
+                            >
+                                {savingGcash ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                    <>
+                                        <Save className="w-4 h-4 mr-1" /> Save
+                                    </>
+                                )}
+                            </Button>
+                            {isEditingGcash && myGcashNumber && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={handleCancelEdit}
+                                >
+                                    Cancel
+                                </Button>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="flex items-center gap-2">
+                            <p className="text-2xl font-bold tracking-wider text-blue-600 dark:text-blue-400">
+                                {myGcashNumber}
+                            </p>
+                            <CheckCircle2 className="w-5 h-5 text-green-500" />
+                        </div>
+                    )}
+                    <p className="text-xs text-muted-foreground mt-2">
+                        {myGcashNumber
+                            ? "Your GCash number is saved. Others will see this when they pay you via GCash."
+                            : "Enter your 11-digit GCash number starting with 09."
+                        }
+                    </p>
+                </CardContent>
+            </Card>
 
             <Tabs defaultValue="payables" className="w-full">
                 <TabsList className="grid w-full grid-cols-2">
