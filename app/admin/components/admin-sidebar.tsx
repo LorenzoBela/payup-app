@@ -17,6 +17,7 @@ import {
     ChevronLeft,
     ArrowLeft,
     BarChart3,
+    Gauge,
 } from "lucide-react";
 
 interface AdminSidebarProps {
@@ -31,6 +32,7 @@ const adminNavigation = [
     { name: "Transactions", href: "/admin/transactions", icon: Receipt },
     { name: "Activity", href: "/admin/activity", icon: Activity },
     { name: "Reports", href: "/admin/reports", icon: BarChart3 },
+    { name: "Performance", href: "/admin/performance", icon: Gauge },
 ];
 
 function AdminSidebarContent({ collapsed = false, onNavClick }: { collapsed?: boolean; onNavClick?: () => void }) {

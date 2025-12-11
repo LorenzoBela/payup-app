@@ -888,3 +888,142 @@ export async function getExpenseAnalytics(options?: {
         return null;
     }
 }
+
+/**
+ * Get real-time performance metrics for system monitoring.
+ * Requires SuperAdmin privileges.
+ */
+export async function getPerformanceMetrics() {
+    await requireSuperAdmin();
+
+    const metrics: {
+        database: {
+            status: "connected" | "slow" | "disconnected";
+            responseTime: number;
+            queryCount: number;
+            activeQueries: number;
+        };
+        api: {
+            status: "healthy" | "degraded" | "down";
+            serverTime: Date;
+        };
+        system: {
+            totalUsers: number;
+            totalTeams: number;
+            totalExpenses: number;
+            totalSettlements: number;
+            pendingSettlements: number;
+            unconfirmedSettlements: number;
+            activitiesToday: number;
+            expensesToday: number;
+            settlementsToday: number;
+        };
+        recentActivity: {
+            last5Minutes: number;
+            last15Minutes: number;
+            lastHour: number;
+        };
+    } = {
+        database: {
+            status: "disconnected",
+            responseTime: 0,
+            queryCount: 0,
+            activeQueries: 0,
+        },
+        api: {
+            status: "healthy",
+            serverTime: new Date(),
+        },
+        system: {
+            totalUsers: 0,
+            totalTeams: 0,
+            totalExpenses: 0,
+            totalSettlements: 0,
+            pendingSettlements: 0,
+            unconfirmedSettlements: 0,
+            activitiesToday: 0,
+            expensesToday: 0,
+            settlementsToday: 0,
+        },
+        recentActivity: {
+            last5Minutes: 0,
+            last15Minutes: 0,
+            lastHour: 0,
+        },
+    };
+
+    try {
+        // Measure database response time with a simple query
+        const dbStart = performance.now();
+        await prisma.$queryRaw`SELECT 1`;
+        const dbResponseTime = Math.round(performance.now() - dbStart);
+
+        metrics.database.responseTime = dbResponseTime;
+        metrics.database.status = dbResponseTime < 100 ? "connected" : dbResponseTime < 500 ? "slow" : "disconnected";
+
+        // Get current timestamp references
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+        const fifteenMinutesAgo = new Date(now.getTime() - 15 * 60 * 1000);
+        const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+
+        // Execute all queries in parallel for speed
+        const [
+            totalUsers,
+            totalTeams,
+            totalExpenses,
+            totalSettlements,
+            pendingSettlements,
+            unconfirmedSettlements,
+            activitiesToday,
+            expensesToday,
+            settlementsToday,
+            activityLast5Min,
+            activityLast15Min,
+            activityLastHour,
+        ] = await Promise.all([
+            prisma.user.count({ where: { deleted_at: null } }),
+            prisma.team.count(),
+            prisma.expense.count({ where: { deleted_at: null } }),
+            prisma.settlement.count({ where: { deleted_at: null } }),
+            prisma.settlement.count({ where: { status: Status.pending, deleted_at: null } }),
+            prisma.settlement.count({ where: { status: Status.unconfirmed, deleted_at: null } }),
+            prisma.activityLog.count({ where: { created_at: { gte: startOfToday } } }),
+            prisma.expense.count({ where: { created_at: { gte: startOfToday }, deleted_at: null } }),
+            prisma.settlement.count({ where: { created_at: { gte: startOfToday }, deleted_at: null } }),
+            prisma.activityLog.count({ where: { created_at: { gte: fiveMinutesAgo } } }),
+            prisma.activityLog.count({ where: { created_at: { gte: fifteenMinutesAgo } } }),
+            prisma.activityLog.count({ where: { created_at: { gte: oneHourAgo } } }),
+        ]);
+
+        // Calculate query count (12 queries were just executed)
+        metrics.database.queryCount = 12;
+
+        metrics.system = {
+            totalUsers,
+            totalTeams,
+            totalExpenses,
+            totalSettlements,
+            pendingSettlements,
+            unconfirmedSettlements,
+            activitiesToday,
+            expensesToday,
+            settlementsToday,
+        };
+
+        metrics.recentActivity = {
+            last5Minutes: activityLast5Min,
+            last15Minutes: activityLast15Min,
+            lastHour: activityLastHour,
+        };
+
+        return metrics;
+    } catch (error) {
+        console.error("Error fetching performance metrics:", error);
+        metrics.database.status = "disconnected";
+        metrics.api.status = "down";
+        return metrics;
+    }
+}
+
