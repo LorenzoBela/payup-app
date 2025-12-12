@@ -5,11 +5,12 @@ import { useTeam } from "@/components/dashboard/team-provider";
 import { getMyPendingSettlements, getMyReceivables, markSettlementAsPaid, markSettlementsAsPaid, verifySettlement, rejectSettlement } from "@/app/actions/expenses";
 import { getGcashNumber, updateGcashNumber } from "@/app/actions/auth";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
-import { Loader2, DollarSign, Wallet, CheckCircle2, ArrowUpRight, ArrowDownLeft, ChevronDown, ChevronUp, XCircle, Check, Smartphone, Edit2, Save } from "lucide-react";
+import { Loader2, DollarSign, Wallet, CheckCircle2, ArrowUpRight, ArrowDownLeft, ChevronDown, ChevronUp, XCircle, Check, Smartphone, Edit2, Save, Clock, Image, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { PaymentModal } from "@/components/dashboard/payment-modal";
+import { BatchPaymentModal } from "@/components/dashboard/batch-payment-modal";
 import {
     Dialog,
     DialogContent,
@@ -42,6 +43,10 @@ interface PendingSettlement {
     status: 'pending' | 'unconfirmed' | 'paid';
     payment_method?: string | null;
     proof_url?: string | null;
+    // Deadline fields
+    is_monthly?: boolean;
+    deadline?: Date | null;
+    deadline_day?: number | null;
 }
 
 interface GroupedDebt {
@@ -59,6 +64,19 @@ export default function PaymentsPage() {
     const [processingId, setProcessingId] = useState<string | null>(null);
     const [paymentModalOpen, setPaymentModalOpen] = useState(false);
     const [selectedSettlement, setSelectedSettlement] = useState<any>(null);
+
+    // Verification modal state
+    const [verificationModalOpen, setVerificationModalOpen] = useState(false);
+    const [settlementToVerify, setSettlementToVerify] = useState<PendingSettlement | null>(null);
+
+    // Batch payment modal state
+    const [batchPaymentModalOpen, setBatchPaymentModalOpen] = useState(false);
+    const [batchPaymentData, setBatchPaymentData] = useState<{
+        settlements: { id: string; amount: number; expense_description: string }[];
+        recipientName: string;
+        recipientGcash?: string | null;
+        totalAmount: number;
+    } | null>(null);
 
     // GCash number state
     const [myGcashNumber, setMyGcashNumber] = useState<string>("");
@@ -282,56 +300,78 @@ export default function PaymentsPage() {
                                                 PHP {group.totalAmount.toFixed(2)}
                                             </p>
                                         </div>
-                                        <Dialog>
-                                            <DialogTrigger asChild>
-                                                <Button
-                                                    size="sm"
-                                                    variant={type === 'payable' ? "default" : "outline"}
-                                                    disabled={processingId !== null}
-                                                    className={type === 'receivable' ? "border-green-600 text-green-600 hover:bg-green-50" : ""}
-                                                >
-                                                    {type === 'payable' ? "Pay All" : "Collect All"}
-                                                </Button>
-                                            </DialogTrigger>
-                                            <DialogContent>
-                                                <DialogHeader>
-                                                    <DialogTitle>{type === 'payable' ? "Confirm Batch Payment" : "Confirm Batch Receipt"}</DialogTitle>
-                                                    <DialogDescription>
-                                                        {type === 'payable'
-                                                            ? `Are you sure you want to pay all ${group.settlements.length} debts to ${group.person.name}?`
-                                                            : `Are you sure you want to mark all ${group.settlements.length} debts from ${group.person.name} as received?`
-                                                        }
-                                                    </DialogDescription>
-                                                </DialogHeader>
-                                                <div className="py-4">
-                                                    <Alert>
-                                                        <DollarSign className="h-4 w-4" />
-                                                        <AlertTitle>Total Amount</AlertTitle>
-                                                        <AlertDescription className="font-bold text-lg mt-1">
-                                                            PHP {group.totalAmount.toFixed(2)}
-                                                        </AlertDescription>
-                                                    </Alert>
-                                                </div>
-                                                <DialogFooter>
-                                                    <Button variant="outline" onClick={() => { }}>Cancel</Button>
+                                        {type === 'payable' ? (
+                                            // Pay All - Open BatchPaymentModal
+                                            <Button
+                                                size="sm"
+                                                variant="default"
+                                                disabled={processingId !== null}
+                                                onClick={() => {
+                                                    setBatchPaymentData({
+                                                        settlements: group.settlements.map(s => ({
+                                                            id: s.id,
+                                                            amount: s.amount,
+                                                            expense_description: s.expense_description
+                                                        })),
+                                                        recipientName: group.person.name,
+                                                        recipientGcash: group.person.gcash_number,
+                                                        totalAmount: group.totalAmount
+                                                    });
+                                                    setBatchPaymentModalOpen(true);
+                                                }}
+                                            >
+                                                Pay All
+                                            </Button>
+                                        ) : (
+                                            // Collect All - Keep simple dialog for creditors
+                                            <Dialog>
+                                                <DialogTrigger asChild>
                                                     <Button
-                                                        onClick={() => handleBatchAction(group.settlements.map(s => s.id), type === 'payable' ? 'pay' : 'collect')}
+                                                        size="sm"
+                                                        variant="outline"
                                                         disabled={processingId !== null}
-                                                        variant={type === 'payable' ? "default" : "outline"}
-                                                        className={type === 'receivable' ? "border-green-600 text-green-600 hover:bg-green-50" : ""}
+                                                        className="border-green-600 text-green-600 hover:bg-green-50"
                                                     >
-                                                        {processingId === 'batch' ? (
-                                                            <>
-                                                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                                                Processing...
-                                                            </>
-                                                        ) : (
-                                                            "Confirm"
-                                                        )}
+                                                        Collect All
                                                     </Button>
-                                                </DialogFooter>
-                                            </DialogContent>
-                                        </Dialog>
+                                                </DialogTrigger>
+                                                <DialogContent>
+                                                    <DialogHeader>
+                                                        <DialogTitle>Confirm Batch Receipt</DialogTitle>
+                                                        <DialogDescription>
+                                                            Are you sure you want to mark all {group.settlements.length} debts from {group.person.name} as received?
+                                                        </DialogDescription>
+                                                    </DialogHeader>
+                                                    <div className="py-4">
+                                                        <Alert>
+                                                            <DollarSign className="h-4 w-4" />
+                                                            <AlertTitle>Total Amount</AlertTitle>
+                                                            <AlertDescription className="font-bold text-lg mt-1">
+                                                                PHP {group.totalAmount.toFixed(2)}
+                                                            </AlertDescription>
+                                                        </Alert>
+                                                    </div>
+                                                    <DialogFooter>
+                                                        <Button variant="outline" onClick={() => { }}>Cancel</Button>
+                                                        <Button
+                                                            onClick={() => handleBatchAction(group.settlements.map(s => s.id), 'collect')}
+                                                            disabled={processingId !== null}
+                                                            variant="outline"
+                                                            className="border-green-600 text-green-600 hover:bg-green-50"
+                                                        >
+                                                            {processingId === 'batch' ? (
+                                                                <>
+                                                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                                                    Processing...
+                                                                </>
+                                                            ) : (
+                                                                "Confirm"
+                                                            )}
+                                                        </Button>
+                                                    </DialogFooter>
+                                                </DialogContent>
+                                            </Dialog>
+                                        )}
                                     </div>
                                 </div>
 
@@ -344,7 +384,18 @@ export default function PaymentsPage() {
                                                         <div className="min-w-0 flex-1">
                                                             <p className="font-medium truncate text-sm">{settlement.expense_description}</p>
                                                             <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-                                                                <span>{new Date(settlement.expense_date).toLocaleDateString()}</span>
+                                                                {settlement.is_monthly && settlement.deadline ? (
+                                                                    <span className="flex items-center gap-1 text-orange-600 dark:text-orange-400 font-medium">
+                                                                        <Clock className="w-3 h-3" />
+                                                                        Due: {new Date(settlement.deadline).toLocaleDateString(undefined, {
+                                                                            month: 'short',
+                                                                            day: 'numeric',
+                                                                            year: 'numeric'
+                                                                        })}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span>{new Date(settlement.expense_date).toLocaleDateString()}</span>
+                                                                )}
                                                                 <span>•</span>
                                                                 <span>Original: PHP {settlement.expense_amount.toFixed(2)}</span>
                                                             </div>
@@ -374,33 +425,18 @@ export default function PaymentsPage() {
                                                             ) : (
                                                                 <>
                                                                     {settlement.status === 'unconfirmed' ? (
-                                                                        <div className="flex gap-1">
-                                                                            {settlement.proof_url && (
-                                                                                <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
-                                                                                    <a href={settlement.proof_url} target="_blank" rel="noreferrer">
-                                                                                        <ArrowUpRight className="h-3 w-3" />
-                                                                                    </a>
-                                                                                </Button>
-                                                                            )}
-                                                                            <Button
-                                                                                size="sm"
-                                                                                variant="outline"
-                                                                                className="h-7 text-xs px-2 text-green-600 border-green-200 hover:bg-green-50"
-                                                                                onClick={() => handleAction(settlement.id, 'verify')}
-                                                                                disabled={processingId !== null}
-                                                                            >
-                                                                                <Check className="h-3 w-3 mr-1" /> Verify
-                                                                            </Button>
-                                                                            <Button
-                                                                                size="sm"
-                                                                                variant="outline"
-                                                                                className="h-7 text-xs px-2 text-red-600 border-red-200 hover:bg-red-50"
-                                                                                onClick={() => handleAction(settlement.id, 'reject')}
-                                                                                disabled={processingId !== null}
-                                                                            >
-                                                                                <XCircle className="h-3 w-3" />
-                                                                            </Button>
-                                                                        </div>
+                                                                        <Button
+                                                                            size="sm"
+                                                                            variant="outline"
+                                                                            className="h-7 text-xs px-2"
+                                                                            onClick={() => {
+                                                                                setSettlementToVerify(settlement);
+                                                                                setVerificationModalOpen(true);
+                                                                            }}
+                                                                            disabled={processingId !== null}
+                                                                        >
+                                                                            <Eye className="h-3 w-3 mr-1" /> Review
+                                                                        </Button>
                                                                     ) : (
                                                                         <Button
                                                                             size="sm"
@@ -541,6 +577,150 @@ export default function PaymentsPage() {
                     />
                 )
             }
+
+            {/* Verification Modal */}
+            <Dialog open={verificationModalOpen} onOpenChange={setVerificationModalOpen}>
+                <DialogContent className="max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Eye className="h-5 w-5" />
+                            Review Payment
+                        </DialogTitle>
+                        <DialogDescription>
+                            Review the payment proof before verifying or rejecting this payment.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {settlementToVerify && (
+                        <div className="space-y-4">
+                            {/* Payment Details */}
+                            <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+                                <div className="flex justify-between items-center">
+                                    <span className="text-sm text-muted-foreground">From</span>
+                                    <span className="font-medium">{settlementToVerify.person.name}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-sm text-muted-foreground">For</span>
+                                    <span className="font-medium text-sm truncate max-w-[200px]">{settlementToVerify.expense_description}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                    <span className="text-sm text-muted-foreground">Payment Method</span>
+                                    <span className="font-medium">{settlementToVerify.payment_method || 'Cash'}</span>
+                                </div>
+                                <div className="flex justify-between items-center pt-2 border-t">
+                                    <span className="text-sm font-medium">Amount</span>
+                                    <span className="text-xl font-bold text-primary">PHP {settlementToVerify.amount.toFixed(2)}</span>
+                                </div>
+                            </div>
+
+                            {/* Proof of Payment */}
+                            <div className="space-y-2">
+                                <h4 className="text-sm font-medium flex items-center gap-2">
+                                    <Image className="h-4 w-4" />
+                                    Proof of Payment
+                                </h4>
+                                {settlementToVerify.proof_url ? (
+                                    <div className="relative rounded-lg overflow-hidden border bg-muted/30">
+                                        <a href={settlementToVerify.proof_url} target="_blank" rel="noreferrer">
+                                            <img
+                                                src={settlementToVerify.proof_url}
+                                                alt="Proof of payment"
+                                                className="w-full max-h-[400px] object-contain cursor-pointer hover:opacity-90 transition-opacity"
+                                            />
+                                        </a>
+                                        <div className="absolute bottom-2 right-2">
+                                            <Button variant="secondary" size="sm" asChild>
+                                                <a href={settlementToVerify.proof_url} target="_blank" rel="noreferrer">
+                                                    <ArrowUpRight className="h-3 w-3 mr-1" /> Open Full Size
+                                                </a>
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center py-8 rounded-lg border border-dashed text-muted-foreground">
+                                        <Image className="h-10 w-10 mb-2 opacity-50" />
+                                        <p className="text-sm">No proof of payment provided</p>
+                                        <p className="text-xs">Payment was made with {settlementToVerify.payment_method || 'Cash'}</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    <DialogFooter className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
+                        <Button
+                            variant="outline"
+                            className="text-red-600 border-red-200 hover:bg-red-50"
+                            onClick={async () => {
+                                if (settlementToVerify) {
+                                    setProcessingId(settlementToVerify.id);
+                                    const result = await rejectSettlement(settlementToVerify.id);
+                                    if (result.success) {
+                                        toast.success("Payment rejected");
+                                        setVerificationModalOpen(false);
+                                        setSettlementToVerify(null);
+                                        await fetchData();
+                                    } else {
+                                        toast.error(result.error || "Failed to reject");
+                                    }
+                                    setProcessingId(null);
+                                }
+                            }}
+                            disabled={processingId !== null}
+                        >
+                            {processingId === settlementToVerify?.id ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                                <XCircle className="h-4 w-4 mr-2" />
+                            )}
+                            Reject
+                        </Button>
+                        <Button
+                            variant="outline"
+                            className="text-green-600 border-green-200 hover:bg-green-50"
+                            onClick={async () => {
+                                if (settlementToVerify) {
+                                    setProcessingId(settlementToVerify.id);
+                                    const result = await verifySettlement(settlementToVerify.id);
+                                    if (result.success) {
+                                        toast.success("Payment verified!");
+                                        setVerificationModalOpen(false);
+                                        setSettlementToVerify(null);
+                                        await fetchData();
+                                    } else {
+                                        toast.error(result.error || "Failed to verify");
+                                    }
+                                    setProcessingId(null);
+                                }
+                            }}
+                            disabled={processingId !== null}
+                        >
+                            {processingId === settlementToVerify?.id ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                                <Check className="h-4 w-4 mr-2" />
+                            )}
+                            {settlementToVerify?.payment_method === 'GCASH' ? 'Accept' : 'Acknowledge'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Batch Payment Modal */}
+            {batchPaymentData && (
+                <BatchPaymentModal
+                    open={batchPaymentModalOpen}
+                    onOpenChange={setBatchPaymentModalOpen}
+                    settlements={batchPaymentData.settlements}
+                    recipientName={batchPaymentData.recipientName}
+                    recipientGcash={batchPaymentData.recipientGcash}
+                    totalAmount={batchPaymentData.totalAmount}
+                    onSuccess={() => {
+                        fetchData();
+                        setBatchPaymentData(null);
+                    }}
+                />
+            )}
         </div >
     );
 }

@@ -52,11 +52,11 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             )}>
                 {/* Top Navbar */}
                 <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-                    <div className="flex h-16 items-center gap-4 px-4 md:px-6">
+                    <div className="flex h-16 items-center gap-4 px-4 md:px-6 relative">
                         {/* Mobile menu */}
                         <MobileSidebar />
 
-                        {/* Team Switcher */}
+                        {/* Team Switcher - Desktop only */}
                         <div className="hidden sm:flex items-center gap-4">
                             <Separator orientation="vertical" className="h-6" />
                             <TeamSwitcher
@@ -68,10 +68,13 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                             />
                         </div>
 
-                        {/* Spacer */}
-                        <div className="flex-1" />
+                        {/* Centered Date Display - Mobile: absolute center, Desktop: in flow */}
+                        <div className="absolute left-1/2 -translate-x-1/2 sm:static sm:translate-x-0 sm:flex-1 sm:flex sm:justify-end sm:mr-4">
+                            <DateDisplay />
+                        </div>
 
-                        <DateDisplay />
+                        {/* Spacer for desktop */}
+                        <div className="flex-1 sm:hidden" />
 
                         <ModeToggle />
 

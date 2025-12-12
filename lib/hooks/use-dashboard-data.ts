@@ -2,11 +2,11 @@
 
 import useSWR, { SWRConfiguration } from "swr";
 import useSWRInfinite from "swr/infinite";
-import { 
-    getTeamExpenses, 
-    getTeamSettlements, 
+import {
+    getTeamExpenses,
+    getTeamSettlements,
     getTeamBalances,
-    getDashboardData 
+    getDashboardData
 } from "@/app/actions/expenses";
 import { getTeamLogs } from "@/app/actions/logs";
 import { getTeamMembers } from "@/app/actions/teams";
@@ -51,6 +51,12 @@ interface Expense {
     team_id: string | null;
     updated_at: Date;
     deleted_at: Date | null;
+    // Monthly payment fields
+    is_monthly: boolean;
+    month_number: number | null;
+    total_months: number | null;
+    deadline: Date | null;
+    deadline_day: number | null;
 }
 
 interface Settlement {
@@ -66,6 +72,10 @@ interface Settlement {
     paid_at: Date | null;
     isCurrentUserOwing: boolean;
     isCurrentUserOwed: boolean;
+    // Deadline fields
+    is_monthly: boolean;
+    deadline: Date | null;
+    deadline_day: number | null;
 }
 
 interface Balances {
@@ -132,7 +142,7 @@ export function useTeamExpenses(teamId: string | null, pageSize = 20) {
     const getKey = (pageIndex: number, previousPageData: { expenses: Expense[]; nextCursor: string | null } | null) => {
         if (!teamId) return null;
         if (previousPageData && !previousPageData.nextCursor) return null; // No more pages
-        
+
         const cursor = previousPageData?.nextCursor;
         return ["expenses", teamId, cursor, pageSize];
     };
@@ -140,9 +150,9 @@ export function useTeamExpenses(teamId: string | null, pageSize = 20) {
     const { data, error, size, setSize, isLoading, isValidating, mutate } = useSWRInfinite(
         getKey,
         async ([, teamId, cursor]) => {
-            const result = await getTeamExpenses(teamId as string, { 
-                cursor: cursor as string | undefined, 
-                limit: pageSize 
+            const result = await getTeamExpenses(teamId as string, {
+                cursor: cursor as string | undefined,
+                limit: pageSize
             });
             return result;
         },
@@ -175,7 +185,7 @@ export function useTeamSettlements(teamId: string | null, pageSize = 15) {
     const getKey = (pageIndex: number, previousPageData: { settlements: Settlement[]; nextCursor: string | null } | null) => {
         if (!teamId) return null;
         if (previousPageData && !previousPageData.nextCursor) return null;
-        
+
         const cursor = previousPageData?.nextCursor;
         return ["settlements", teamId, cursor, pageSize];
     };
@@ -183,9 +193,9 @@ export function useTeamSettlements(teamId: string | null, pageSize = 15) {
     const { data, error, size, setSize, isLoading, isValidating, mutate } = useSWRInfinite(
         getKey,
         async ([, teamId, cursor]) => {
-            const result = await getTeamSettlements(teamId as string, { 
-                cursor: cursor as string | undefined, 
-                limit: pageSize 
+            const result = await getTeamSettlements(teamId as string, {
+                cursor: cursor as string | undefined,
+                limit: pageSize
             });
             return result;
         },
@@ -217,7 +227,7 @@ export function useTeamLogs(teamId: string | null, pageSize = 30) {
     const getKey = (pageIndex: number, previousPageData: { logs: Log[]; nextCursor: string | null } | null) => {
         if (!teamId) return null;
         if (previousPageData && !previousPageData.nextCursor) return null;
-        
+
         const cursor = previousPageData?.nextCursor;
         return ["logs", teamId, cursor, pageSize];
     };
@@ -225,9 +235,9 @@ export function useTeamLogs(teamId: string | null, pageSize = 30) {
     const { data, error, size, setSize, isLoading, isValidating, mutate } = useSWRInfinite(
         getKey,
         async ([, teamId, cursor]) => {
-            const result = await getTeamLogs(teamId as string, { 
-                cursor: cursor as string | undefined, 
-                limit: pageSize 
+            const result = await getTeamLogs(teamId as string, {
+                cursor: cursor as string | undefined,
+                limit: pageSize
             });
             return result;
         },
@@ -283,7 +293,7 @@ export function useInvalidateDashboard() {
 // Prefetch utility - call this to warm up the cache before navigation
 export async function prefetchDashboardData(teamId: string) {
     if (!teamId) return;
-    
+
     try {
         // Prefetch all dashboard data in parallel
         await Promise.all([
@@ -300,7 +310,7 @@ export async function prefetchDashboardData(teamId: string) {
 // Prefetch team expenses for navigation
 export async function prefetchTeamExpenses(teamId: string) {
     if (!teamId) return;
-    
+
     try {
         await getTeamExpenses(teamId, { limit: 20 });
     } catch (error) {

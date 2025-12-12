@@ -97,14 +97,14 @@ export default function MembersPage() {
             {/* Member List */}
             <Card>
                 <CardHeader>
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <CardTitle>Members ({members.length})</CardTitle>
-                        <div className="relative w-full max-w-sm">
+                        <div className="relative w-full sm:w-auto sm:max-w-sm">
                             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                             <Input
                                 type="search"
                                 placeholder="Search members..."
-                                className="pl-8"
+                                className="pl-8 w-full"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                             />
@@ -136,30 +136,30 @@ export default function MembersPage() {
                             {filteredMembers.map((member) => (
                                 <div
                                     key={member.id}
-                                    className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/5 transition-colors"
+                                    className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/5 transition-colors gap-3"
                                 >
-                                    <div className="flex items-center gap-4">
-                                        <Avatar className="h-10 w-10">
+                                    <div className="flex items-center gap-4 min-w-0">
+                                        <Avatar className="h-10 w-10 shrink-0">
                                             <AvatarImage src="" />
                                             <AvatarFallback>{getInitials(member.name)}</AvatarFallback>
                                         </Avatar>
-                                        <div>
-                                            <div className="font-medium flex items-center gap-2">
-                                                {member.name}
+                                        <div className="min-w-0">
+                                            <div className="font-medium flex items-center gap-2 flex-wrap">
+                                                <span className="truncate">{member.name}</span>
                                                 {member.role === "ADMIN" && (
-                                                    <Badge variant="secondary" className="text-[10px] h-5 px-1.5">
+                                                    <Badge variant="secondary" className="text-[10px] h-5 px-1.5 shrink-0">
                                                         <Shield className="w-3 h-3 mr-1" />
                                                         Admin
                                                     </Badge>
                                                 )}
                                             </div>
-                                            <div className="text-sm text-muted-foreground flex items-center gap-1">
-                                                <Mail className="w-3 h-3" />
-                                                {member.email}
+                                            <div className="text-sm text-muted-foreground flex items-center gap-1 truncate">
+                                                <Mail className="w-3 h-3 shrink-0" />
+                                                <span className="truncate">{member.email}</span>
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="text-sm text-muted-foreground">
+                                    <div className="text-sm text-muted-foreground sm:text-right pl-14 sm:pl-0">
                                         Joined {new Date(member.joinedAt).toLocaleDateString()}
                                     </div>
                                 </div>

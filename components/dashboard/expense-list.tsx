@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Receipt, Trash2, Search, Loader2 } from "lucide-react";
+import { Receipt, Trash2, Search, Loader2, Calendar, Clock } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useState, useEffect, useRef, useCallback, memo } from "react";
 import { deleteExpense } from "@/app/actions/expenses";
@@ -24,17 +24,23 @@ interface ExpenseItemProps {
     category: string;
     paid_by_name: string;
     created_at: Date;
+    // Monthly payment fields
+    is_monthly: boolean;
+    month_number: number | null;
+    total_months: number | null;
+    deadline: Date | null;
+    deadline_day: number | null;
   };
   isDeleting: boolean;
   onDelete: (id: string) => void;
   getCategoryColor: (category: string) => string;
 }
 
-const ExpenseItem = memo(function ExpenseItem({ 
-  expense, 
-  isDeleting, 
-  onDelete, 
-  getCategoryColor 
+const ExpenseItem = memo(function ExpenseItem({
+  expense,
+  isDeleting,
+  onDelete,
+  getCategoryColor
 }: ExpenseItemProps) {
   return (
     <div className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-muted/50 transition-colors">
@@ -60,9 +66,22 @@ const ExpenseItem = memo(function ExpenseItem({
           <p className="text-lg font-bold text-foreground">
             ₱{expense.amount.toFixed(2)}
           </p>
-          <p className="text-xs text-muted-foreground">
-            {new Date(expense.created_at).toLocaleDateString()}
-          </p>
+          {expense.is_monthly && expense.deadline ? (
+            <div className="flex items-center justify-end gap-1 text-xs text-orange-600 dark:text-orange-400">
+              <Clock className="w-3 h-3" />
+              <span>
+                Due: {new Date(expense.deadline).toLocaleDateString(undefined, {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric'
+                })}
+              </span>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {new Date(expense.created_at).toLocaleDateString()}
+            </p>
+          )}
         </div>
         <div className="flex gap-1">
           <Button
@@ -95,13 +114,13 @@ export function ExpenseList({ teamId, refreshKey }: ExpenseListProps) {
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const parentRef = useRef<HTMLDivElement>(null);
 
-  const { 
-    expenses, 
-    isLoading, 
-    isLoadingMore, 
-    hasMore, 
-    loadMore, 
-    mutate 
+  const {
+    expenses,
+    isLoading,
+    isLoadingMore,
+    hasMore,
+    loadMore,
+    mutate
   } = useTeamExpenses(teamId);
 
   // Re-fetch when refreshKey changes (after adding new expense)
@@ -138,10 +157,10 @@ export function ExpenseList({ teamId, refreshKey }: ExpenseListProps) {
 
   const handleDelete = async (expenseId: string) => {
     setDeletingId(expenseId);
-    
+
     // Store current data for rollback
     const previousExpenses = expenses;
-    
+
     // Optimistic update - immediately remove from UI
     mutate(
       (current) => {
@@ -153,7 +172,7 @@ export function ExpenseList({ teamId, refreshKey }: ExpenseListProps) {
       },
       { revalidate: false }
     );
-    
+
     try {
       const result = await deleteExpense(expenseId);
       if (result.error) {
@@ -195,7 +214,7 @@ export function ExpenseList({ teamId, refreshKey }: ExpenseListProps) {
 
   // Use virtualization for large lists (>50 items)
   const shouldVirtualize = filteredExpenses.length > VIRTUALIZATION_THRESHOLD;
-  
+
   const virtualizer = useVirtualizer({
     count: filteredExpenses.length,
     getScrollElement: () => parentRef.current,
@@ -316,7 +335,7 @@ export function ExpenseList({ teamId, refreshKey }: ExpenseListProps) {
                 getCategoryColor={getCategoryColor}
               />
             ))}
-            
+
             {/* Infinite scroll trigger */}
             <div ref={loadMoreRef} className="py-4 flex justify-center">
               {isLoadingMore && (

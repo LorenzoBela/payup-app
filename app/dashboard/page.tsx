@@ -185,11 +185,11 @@ export default function DashboardPage() {
           </div>
 
           {/* Main Dashboard Content Area */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-            <div className="col-span-4">
+          <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-7">
+            <div className="md:col-span-1 lg:col-span-4">
               <ExpenseList teamId={selectedTeam.id} refreshKey={refreshKey} />
             </div>
-            <div className="col-span-3 space-y-4">
+            <div className="md:col-span-1 lg:col-span-3 space-y-4">
               <div id="settlements-section">
                 <SettlementsList teamId={selectedTeam.id} refreshKey={refreshKey} />
               </div>

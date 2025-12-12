@@ -401,6 +401,10 @@ export async function getTeamSettlements(
                 id: true,
                 description: true,
                 paid_by: true,
+                // Include deadline fields
+                is_monthly: true,
+                deadline: true,
+                deadline_day: true,
             },
         });
 
@@ -462,6 +466,10 @@ export async function getTeamSettlements(
                     paid_at: settlement.paid_at,
                     isCurrentUserOwing,
                     isCurrentUserOwed,
+                    // Include deadline info
+                    is_monthly: expense?.is_monthly || false,
+                    deadline: expense?.deadline || null,
+                    deadline_day: expense?.deadline_day || null,
                 };
             }),
             nextCursor,
@@ -761,6 +769,87 @@ export async function markSettlementsAsPaid(settlementIds: string[]) {
     }
 }
 
+// Batch mark settlements as paid with specific payment method
+export async function markSettlementsAsPaidWithMethod(
+    settlementIds: string[],
+    method: "CASH" | "GCASH",
+    proofUrl?: string
+) {
+    try {
+        const user = await currentUser();
+        if (!user) {
+            return { error: "Not authenticated" };
+        }
+
+        if (settlementIds.length === 0) {
+            return { success: true };
+        }
+
+        const settlements = await prisma.settlement.findMany({
+            where: { id: { in: settlementIds } },
+            include: {
+                expense: {
+                    select: {
+                        paid_by: true,
+                        team_id: true,
+                        description: true,
+                    }
+                }
+            }
+        });
+
+        // Validate that user is the debtor for all settlements
+        const firstSettlement = settlements[0];
+        if (firstSettlement.owed_by !== user.id) {
+            return { error: "You can only submit payments for debts you owe" };
+        }
+
+        // Validate all settlements belong to the same creditor (for batch payment logic)
+        const creditorId = firstSettlement.expense.paid_by;
+        const allSameCreditor = settlements.every(s => s.expense.paid_by === creditorId);
+        if (!allSameCreditor) {
+            return { error: "All settlements must be to the same person for batch payment" };
+        }
+
+        await prisma.$transaction(async (tx) => {
+            // Update all settlements with the payment method and proof
+            await tx.settlement.updateMany({
+                where: { id: { in: settlementIds } },
+                data: {
+                    status: Status.unconfirmed,
+                    payment_method: method === "CASH" ? PaymentMethod.CASH : PaymentMethod.GCASH,
+                    proof_url: proofUrl || null,
+                    // Don't set paid_at yet - that happens when creditor verifies
+                },
+            });
+
+            const teamId = settlements[0]?.expense.team_id;
+            if (teamId) {
+                const totalAmount = settlements.reduce((sum, s) => sum + s.amount_owed, 0);
+                await tx.activityLog.create({
+                    data: {
+                        team_id: teamId,
+                        user_id: user.id,
+                        action: "SUBMITTED_PAYMENT_BATCH",
+                        details: `Submitted ${settlementIds.length} ${method} payments totaling PHP ${totalAmount.toFixed(2)} (Pending Verification)`,
+                    },
+                });
+            }
+        });
+
+        // Invalidate cache after batch update
+        const teamId = settlements[0]?.expense.team_id;
+        if (teamId) {
+            await invalidateTeamCache(teamId, user.id);
+        }
+        revalidatePath("/dashboard");
+        return { success: true };
+    } catch (error) {
+        console.error("Error marking settlements as paid with method:", error);
+        return { error: "Failed to submit payments" };
+    }
+}
+
 
 export async function getMyPendingSettlements(teamId: string) {
     try {
@@ -790,7 +879,11 @@ export async function getMyPendingSettlements(teamId: string) {
                         amount: true,
                         category: true,
                         created_at: true,
-                        paid_by: true
+                        paid_by: true,
+                        // Include deadline fields
+                        is_monthly: true,
+                        deadline: true,
+                        deadline_day: true,
                     }
                 }
             },
@@ -826,6 +919,10 @@ export async function getMyPendingSettlements(teamId: string) {
                 status: settlement.status,
                 payment_method: settlement.payment_method,
                 proof_url: settlement.proof_url,
+                // Include deadline info
+                is_monthly: settlement.expense.is_monthly,
+                deadline: settlement.expense.deadline,
+                deadline_day: settlement.expense.deadline_day,
             };
         });
 
@@ -868,6 +965,10 @@ export async function getMyReceivables(teamId: string) {
                         amount: true,
                         created_at: true,
                         category: true,
+                        // Include deadline fields
+                        is_monthly: true,
+                        deadline: true,
+                        deadline_day: true,
                     }
                 }
             },
@@ -901,6 +1002,10 @@ export async function getMyReceivables(teamId: string) {
             status: settlement.status,
             payment_method: settlement.payment_method,
             proof_url: settlement.proof_url,
+            // Include deadline info
+            is_monthly: settlement.expense.is_monthly,
+            deadline: settlement.expense.deadline,
+            deadline_day: settlement.expense.deadline_day,
         }));
 
     } catch (error) {

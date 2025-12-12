@@ -7,6 +7,9 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { useUserRole } from "@/lib/hooks/use-user-role";
+import { TeamSwitcher } from "@/components/team-switcher";
+import { useTeam } from "@/components/dashboard/team-provider";
+import { Separator } from "@/components/ui/separator";
 import {
     LayoutDashboard,
     Users,
@@ -41,7 +44,7 @@ const navigation = [
 function SidebarContent({ collapsed = false, onNavClick, isSuperAdmin = false }: { collapsed?: boolean; onNavClick?: () => void; isSuperAdmin?: boolean }) {
     const pathname = usePathname();
     const router = useRouter();
-    
+
     // Prefetch route on hover for instant navigation
     const handleMouseEnter = useCallback((href: string) => {
         router.prefetch(href);
@@ -143,6 +146,8 @@ export function Sidebar({ collapsed = false, onCollapse }: SidebarProps) {
 export function MobileSidebar() {
     const [open, setOpen] = useState(false);
     const { isSuperAdmin } = useUserRole();
+    const { teams, selectedTeam, setSelectedTeam } = useTeam();
+    const router = useRouter();
 
     return (
         <Sheet open={open} onOpenChange={setOpen}>
@@ -152,11 +157,34 @@ export function MobileSidebar() {
                     <span className="sr-only">Toggle menu</span>
                 </Button>
             </SheetTrigger>
-            <SheetContent side="left" className="p-0 w-[240px]">
+            <SheetContent side="left" className="p-0 w-[280px]">
                 <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
                 <SheetDescription className="sr-only">
                     Mobile navigation sidebar to access dashboard, expenses, members, reports, and settings.
                 </SheetDescription>
+
+                {/* Team Switcher Section for Mobile */}
+                <div className="px-4 py-4 border-b border-border bg-muted/30">
+                    <p className="text-xs font-medium text-muted-foreground mb-2">Current Team</p>
+                    <TeamSwitcher
+                        teams={teams}
+                        selectedTeam={selectedTeam}
+                        onTeamSelect={(team) => {
+                            setSelectedTeam(team);
+                            setOpen(false);
+                        }}
+                        onCreateTeamClick={() => {
+                            router.push("/dashboard?action=create-team");
+                            setOpen(false);
+                        }}
+                        onJoinTeamClick={() => {
+                            router.push("/dashboard?action=join-team");
+                            setOpen(false);
+                        }}
+                        className="w-full"
+                    />
+                </div>
+
                 <SidebarContent onNavClick={() => setOpen(false)} isSuperAdmin={isSuperAdmin} />
             </SheetContent>
         </Sheet>

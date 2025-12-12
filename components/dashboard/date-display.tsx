@@ -21,7 +21,7 @@ export function DateDisplay() {
     }
 
     return (
-        <div className="hidden md:block text-sm text-muted-foreground mr-4">
+        <div className="text-sm text-muted-foreground">
             {date}
         </div>
     );

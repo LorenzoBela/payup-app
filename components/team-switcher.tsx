@@ -57,9 +57,9 @@ export function TeamSwitcher({
                     aria-label="Select a team"
                     className={cn("w-[200px] justify-between", className)}
                 >
-                    <Users className="mr-2 h-4 w-4" />
-                    {selectedTeam ? selectedTeam.name : "Select a team"}
-                    <ChevronsUpDown className="ml-auto h-4 w-4 shrink-0 opacity-50" />
+                    <Users className="mr-2 h-4 w-4 shrink-0" />
+                    <span className="truncate flex-1 text-left">{selectedTeam ? selectedTeam.name : "Select a team"}</span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
             </PopoverTrigger>
             <PopoverContent className="w-[200px] p-0">

@@ -20,6 +20,10 @@ interface SettlementItemProps {
     amount: number;
     status: string;
     isCurrentUserOwing: boolean;
+    // Deadline fields
+    is_monthly: boolean;
+    deadline: Date | null;
+    deadline_day: number | null;
   };
   isMarking: boolean;
   onMarkAsPaid: (id: string) => void;
@@ -48,6 +52,18 @@ const SettlementItem = memo(function SettlementItem({
           <p className="text-xs text-muted-foreground line-clamp-1">
             {settlement.expense_description}
           </p>
+          {settlement.is_monthly && settlement.deadline && (
+            <div className="flex items-center gap-1 text-xs text-orange-600 dark:text-orange-400 font-medium mt-1">
+              <Clock className="w-3 h-3" />
+              <span>
+                Due: {new Date(settlement.deadline).toLocaleDateString(undefined, {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric'
+                })}
+              </span>
+            </div>
+          )}
         </div>
         <Badge
           variant={settlement.status === "paid" ? "default" : "secondary"}
@@ -101,13 +117,13 @@ export function SettlementsList({ teamId, refreshKey }: SettlementsListProps) {
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
 
-  const { 
-    settlements, 
-    isLoading, 
-    isLoadingMore, 
-    hasMore, 
-    loadMore, 
-    mutate 
+  const {
+    settlements,
+    isLoading,
+    isLoadingMore,
+    hasMore,
+    loadMore,
+    mutate
   } = useTeamSettlements(teamId);
 
   // Re-fetch when refreshKey changes
@@ -144,21 +160,21 @@ export function SettlementsList({ teamId, refreshKey }: SettlementsListProps) {
 
   const handleMarkAsPaid = async (settlementId: string) => {
     setMarkingId(settlementId);
-    
+
     // Optimistic update - immediately update status in UI
     mutate(
       (current) => {
         if (!current) return current;
         return current.map(page => ({
           ...page,
-          settlements: page.settlements.map((s: { id: string; status: string }) => 
+          settlements: page.settlements.map((s: { id: string; status: string }) =>
             s.id === settlementId ? { ...s, status: 'unconfirmed' } : s
           )
         }));
       },
       { revalidate: false }
     );
-    
+
     try {
       const result = await markSettlementAsPaid(settlementId);
       if (result.error) {
@@ -229,7 +245,7 @@ export function SettlementsList({ teamId, refreshKey }: SettlementsListProps) {
                 onMarkAsPaid={handleMarkAsPaid}
               />
             ))}
-            
+
             {/* Infinite scroll trigger */}
             <div ref={loadMoreRef} className="py-2 flex justify-center">
               {isLoadingMore && (
