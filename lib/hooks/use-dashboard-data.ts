@@ -264,6 +264,53 @@ export function useTeamLogs(teamId: string | null, pageSize = 30) {
     };
 }
 
+// Hook for expense stats with caching
+export function useExpenseStats(teamId: string | null) {
+    const { data, error, isLoading, mutate } = useSWR(
+        teamId ? ["expense-stats", teamId] : null,
+        async () => {
+            const { getExpenseStats } = await import("@/app/actions/expenses");
+            return getExpenseStats(teamId!);
+        },
+        {
+            ...swrConfig,
+            dedupingInterval: 30000, // 30 seconds cache
+        }
+    );
+
+    return {
+        stats: data || {
+            totalSpent: 0,
+            thisMonthSpent: 0,
+            avgExpense: 0,
+            settlementsCompleted: 0,
+            settlementsTotal: 0
+        },
+        isLoading,
+        isError: !!error,
+        mutate,
+    };
+}
+
+// Hook for GCash number with caching
+export function useGcashNumber() {
+    const { data, error, isLoading, mutate } = useSWR(
+        "gcash-number",
+        async () => {
+            const { getGcashNumber } = await import("@/app/actions/auth");
+            return getGcashNumber();
+        },
+        stableDataConfig // GCash rarely changes
+    );
+
+    return {
+        gcashNumber: data?.number || "",
+        isLoading,
+        isError: !!error,
+        mutate,
+    };
+}
+
 // Hook for team members (usually small list, no pagination needed)
 export function useTeamMembers(teamId: string | null) {
     const { data, error, isLoading, mutate } = useSWR<Member[]>(

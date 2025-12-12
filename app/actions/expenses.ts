@@ -1059,7 +1059,7 @@ export async function getTeamBalances(teamId: string) {
     }
 }
 
-// Optimized: Single raw SQL query for all expense stats (replaces 5 queries with 1)
+// Optimized: Single raw SQL query for all expense stats (replaces 5 queries with 1) + Redis caching
 export async function getExpenseStats(teamId: string) {
     try {
         const user = await currentUser();
@@ -1073,39 +1073,43 @@ export async function getExpenseStats(teamId: string) {
             };
         }
 
-        const now = new Date();
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const cacheKey = cacheKeys.expenseStats(teamId);
 
-        // Single optimized raw SQL query combining all aggregations
-        const result = await prisma.$queryRaw<Array<{
-            total_spent: number | null;
-            this_month_spent: number | null;
-            avg_expense: number | null;
-            total_settlements: bigint;
-            paid_settlements: bigint;
-        }>>`
-            SELECT 
-                COALESCE(SUM(e.amount), 0) as total_spent,
-                COALESCE(SUM(CASE WHEN e.created_at >= ${startOfMonth} THEN e.amount ELSE 0 END), 0) as this_month_spent,
-                COALESCE(AVG(e.amount), 0) as avg_expense,
-                (SELECT COUNT(*) FROM settlements s2 
-                 INNER JOIN expenses e2 ON s2.expense_id = e2.id 
-                 WHERE e2.team_id = ${teamId} AND e2.deleted_at IS NULL AND s2.deleted_at IS NULL) as total_settlements,
-                (SELECT COUNT(*) FROM settlements s3 
-                 INNER JOIN expenses e3 ON s3.expense_id = e3.id 
-                 WHERE e3.team_id = ${teamId} AND e3.deleted_at IS NULL AND s3.deleted_at IS NULL AND s3.status = 'paid') as paid_settlements
-            FROM expenses e
-            WHERE e.team_id = ${teamId} AND e.deleted_at IS NULL
-        `;
+        return cached(cacheKey, async () => {
+            const now = new Date();
+            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-        const data = result[0];
-        return {
-            totalSpent: Number(data?.total_spent || 0),
-            thisMonthSpent: Number(data?.this_month_spent || 0),
-            avgExpense: Number(data?.avg_expense || 0),
-            settlementsCompleted: Number(data?.paid_settlements || 0),
-            settlementsTotal: Number(data?.total_settlements || 0),
-        };
+            // Single optimized raw SQL query combining all aggregations
+            const result = await prisma.$queryRaw<Array<{
+                total_spent: number | null;
+                this_month_spent: number | null;
+                avg_expense: number | null;
+                total_settlements: bigint;
+                paid_settlements: bigint;
+            }>>`
+                SELECT 
+                    COALESCE(SUM(e.amount), 0) as total_spent,
+                    COALESCE(SUM(CASE WHEN e.created_at >= ${startOfMonth} THEN e.amount ELSE 0 END), 0) as this_month_spent,
+                    COALESCE(AVG(e.amount), 0) as avg_expense,
+                    (SELECT COUNT(*) FROM settlements s2 
+                     INNER JOIN expenses e2 ON s2.expense_id = e2.id 
+                     WHERE e2.team_id = ${teamId} AND e2.deleted_at IS NULL AND s2.deleted_at IS NULL) as total_settlements,
+                    (SELECT COUNT(*) FROM settlements s3 
+                     INNER JOIN expenses e3 ON s3.expense_id = e3.id 
+                     WHERE e3.team_id = ${teamId} AND e3.deleted_at IS NULL AND s3.deleted_at IS NULL AND s3.status = 'paid') as paid_settlements
+                FROM expenses e
+                WHERE e.team_id = ${teamId} AND e.deleted_at IS NULL
+            `;
+
+            const data = result[0];
+            return {
+                totalSpent: Number(data?.total_spent || 0),
+                thisMonthSpent: Number(data?.this_month_spent || 0),
+                avgExpense: Number(data?.avg_expense || 0),
+                settlementsCompleted: Number(data?.paid_settlements || 0),
+                settlementsTotal: Number(data?.total_settlements || 0),
+            };
+        }, CACHE_TTL.STATS);
     } catch (error) {
         console.error("Error fetching expense stats:", error);
         return {

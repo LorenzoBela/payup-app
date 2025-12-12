@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { useTeam } from "@/components/dashboard/team-provider";
 import { getMyPendingSettlements, getMyReceivables, markSettlementAsPaid, markSettlementsAsPaid, verifySettlement, rejectSettlement } from "@/app/actions/expenses";
-import { getGcashNumber, updateGcashNumber } from "@/app/actions/auth";
+import { updateGcashNumber } from "@/app/actions/auth";
+import { useGcashNumber } from "@/lib/hooks/use-dashboard-data";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Loader2, DollarSign, Wallet, CheckCircle2, ArrowUpRight, ArrowDownLeft, ChevronDown, ChevronUp, XCircle, Check, Smartphone, Edit2, Save, Clock, Image, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -78,11 +79,18 @@ export default function PaymentsPage() {
         totalAmount: number;
     } | null>(null);
 
-    // GCash number state
-    const [myGcashNumber, setMyGcashNumber] = useState<string>("");
+    // GCash number - now using SWR hook (loads in parallel with other data)
+    const { gcashNumber: myGcashNumber, mutate: mutateGcash } = useGcashNumber();
     const [isEditingGcash, setIsEditingGcash] = useState(false);
     const [savingGcash, setSavingGcash] = useState(false);
     const [gcashInput, setGcashInput] = useState<string>("");
+
+    // Update gcashInput when myGcashNumber loads
+    useEffect(() => {
+        if (myGcashNumber && !gcashInput) {
+            setGcashInput(myGcashNumber);
+        }
+    }, [myGcashNumber, gcashInput]);
 
     const fetchData = async () => {
         if (!selectedTeam) return;
@@ -145,18 +153,6 @@ export default function PaymentsPage() {
         fetchData();
     }, [selectedTeam]);
 
-    // Fetch user's GCash number on mount
-    useEffect(() => {
-        const fetchGcash = async () => {
-            const result = await getGcashNumber();
-            if (result.number) {
-                setMyGcashNumber(result.number);
-                setGcashInput(result.number);
-            }
-        };
-        fetchGcash();
-    }, []);
-
     const handleSaveGcash = async () => {
         setSavingGcash(true);
         try {
@@ -165,7 +161,7 @@ export default function PaymentsPage() {
                 toast.error(result.error);
             } else {
                 toast.success("GCash number saved successfully!");
-                setMyGcashNumber(gcashInput);
+                mutateGcash(); // Revalidate SWR cache
                 setIsEditingGcash(false);
             }
         } catch (error) {

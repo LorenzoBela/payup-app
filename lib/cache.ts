@@ -1,12 +1,59 @@
-import { Redis } from "@upstash/redis";
+import { createClient, RedisClientType } from "redis";
+
+// Redis client singleton
+let redis: RedisClientType | null = null;
+let isConnecting = false;
+let connectionPromise: Promise<void> | null = null;
 
 // Initialize Redis client (will gracefully fail if not configured)
-const redis = process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
-    ? new Redis({
-        url: process.env.UPSTASH_REDIS_REST_URL,
-        token: process.env.UPSTASH_REDIS_REST_TOKEN,
-    })
-    : null;
+async function getRedisClient(): Promise<RedisClientType | null> {
+    // Check if all required env vars are present
+    const host = process.env.REDIS_HOST;
+    const port = process.env.REDIS_PORT;
+    const password = process.env.REDIS_PASSWORD;
+
+    if (!host || !port || !password) {
+        return null;
+    }
+
+    // Return existing connected client
+    if (redis?.isOpen) {
+        return redis;
+    }
+
+    // If already connecting, wait for that to complete
+    if (isConnecting && connectionPromise) {
+        await connectionPromise;
+        return redis;
+    }
+
+    // Start new connection
+    isConnecting = true;
+    connectionPromise = (async () => {
+        try {
+            redis = createClient({
+                username: "default",
+                password: password,
+                socket: {
+                    host: host,
+                    port: parseInt(port, 10),
+                },
+            });
+
+            redis.on("error", (err) => console.warn("Redis Client Error:", err));
+
+            await redis.connect();
+        } catch (error) {
+            console.warn("Redis connection failed:", error);
+            redis = null;
+        } finally {
+            isConnecting = false;
+        }
+    })();
+
+    await connectionPromise;
+    return redis;
+}
 
 // Cache TTL constants (in seconds)
 export const CACHE_TTL = {
@@ -27,30 +74,32 @@ export const cacheKeys = {
 
 /**
  * Get cached value or execute fetcher and cache result
- * Falls back to direct fetch if Redis is not configured
+ * Falls back to direct fetch if Redis is not configured or unavailable
  */
 export async function cached<T>(
     key: string,
     fetcher: () => Promise<T>,
     ttlSeconds: number = 60
 ): Promise<T> {
-    // If Redis is not configured, just run the fetcher
-    if (!redis) {
+    const client = await getRedisClient();
+
+    // If Redis is not available, just run the fetcher
+    if (!client) {
         return fetcher();
     }
 
     try {
         // Try to get from cache
-        const cached = await redis.get<T>(key);
-        if (cached !== null) {
-            return cached;
+        const cachedValue = await client.get(key);
+        if (cachedValue !== null) {
+            return JSON.parse(cachedValue) as T;
         }
 
         // Cache miss - fetch and store
         const data = await fetcher();
-        
+
         // Store in cache (non-blocking)
-        redis.setex(key, ttlSeconds, data).catch((err) => {
+        client.setEx(key, ttlSeconds, JSON.stringify(data)).catch((err) => {
             console.warn("Cache write failed:", err);
         });
 
@@ -66,10 +115,11 @@ export async function cached<T>(
  * Invalidate cache keys (single or pattern-based)
  */
 export async function invalidateCache(...keys: string[]): Promise<void> {
-    if (!redis || keys.length === 0) return;
+    const client = await getRedisClient();
+    if (!client || keys.length === 0) return;
 
     try {
-        await redis.del(...keys);
+        await client.del(keys);
     } catch (error) {
         console.warn("Cache invalidation failed:", error);
     }
@@ -79,7 +129,8 @@ export async function invalidateCache(...keys: string[]): Promise<void> {
  * Invalidate all cache keys for a team (after mutations)
  */
 export async function invalidateTeamCache(teamId: string, userId?: string): Promise<void> {
-    if (!redis) return;
+    const client = await getRedisClient();
+    if (!client) return;
 
     const keysToInvalidate = [
         cacheKeys.expenseStats(teamId),
@@ -100,24 +151,25 @@ export async function invalidateTeamCache(teamId: string, userId?: string): Prom
 /**
  * Check if Redis cache is available
  */
-export function isCacheAvailable(): boolean {
-    return redis !== null;
+export async function isCacheAvailable(): Promise<boolean> {
+    const client = await getRedisClient();
+    return client !== null && client.isOpen;
 }
 
 /**
  * Get cache stats (for debugging)
  */
 export async function getCacheStats(): Promise<{ available: boolean; ping?: number }> {
-    if (!redis) {
+    const client = await getRedisClient();
+    if (!client) {
         return { available: false };
     }
 
     try {
         const start = Date.now();
-        await redis.ping();
+        await client.ping();
         return { available: true, ping: Date.now() - start };
     } catch {
         return { available: false };
     }
 }
-

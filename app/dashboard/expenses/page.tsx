@@ -1,49 +1,26 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download, Receipt, Loader2 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { AddExpenseDialog } from "@/components/dashboard/add-expense-dialog";
 import { ExpenseList } from "@/components/dashboard/expense-list";
 import { useTeam } from "@/components/dashboard/team-provider";
-import { getExpenseStats } from "@/app/actions/expenses";
-import { toast } from "sonner";
+import { useExpenseStats } from "@/lib/hooks/use-dashboard-data";
+import { useState } from "react";
 
 export default function ExpensesPage() {
     const { selectedTeam, isLoading } = useTeam();
     const [refreshKey, setRefreshKey] = useState(0);
-    const [stats, setStats] = useState({
-        totalSpent: 0,
-        thisMonthSpent: 0,
-        avgExpense: 0,
-        settlementsCompleted: 0,
-        settlementsTotal: 0
-    });
-    const [statsLoading, setStatsLoading] = useState(false);
 
-    useEffect(() => {
-        const fetchStats = async () => {
-            if (!selectedTeam) return;
-            setStatsLoading(true);
-            try {
-                const data = await getExpenseStats(selectedTeam.id);
-                setStats(data);
-            } catch (error) {
-                console.error("Failed to fetch stats", error);
-                toast.error("Failed to load statistics");
-            } finally {
-                setStatsLoading(false);
-            }
-        };
-
-        if (selectedTeam) {
-            fetchStats();
-        }
-    }, [selectedTeam, refreshKey]);
+    // Use SWR for stats with caching
+    const { stats, isLoading: statsLoading, mutate: mutateStats } = useExpenseStats(selectedTeam?.id || null);
 
     const handleExpenseAdded = () => {
         setRefreshKey((prev) => prev + 1);
+        mutateStats(); // Refresh stats via SWR
     };
 
     if (isLoading) {
