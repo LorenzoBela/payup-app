@@ -5,6 +5,11 @@ import { currentUser } from "@clerk/nextjs/server";
 import { Status, PaymentMethod } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { cached, cacheKeys, CACHE_TTL, invalidateTeamCache } from "@/lib/cache";
+import {
+    sendExpenseNotification,
+    sendSettlementConfirmation,
+    sendPaymentReceipt
+} from "@/lib/emails";
 
 interface CreateExpenseInput {
     description: string;
@@ -37,10 +42,13 @@ export async function createExpense(input: CreateExpenseInput) {
             return { error: "Not authenticated" };
         }
 
-        // Combined query: verify membership AND get all team members in one go
+        // Combined query: verify membership AND get all team members with details
         const teamMembers = await prisma.teamMember.findMany({
             where: { team_id: input.teamId },
-            select: { user_id: true },
+            include: {
+                user: { select: { id: true, name: true, email: true } },
+                team: { select: { name: true } }
+            }
         });
 
         const isMember = teamMembers.some(m => m.user_id === user.id);
@@ -100,6 +108,28 @@ export async function createExpense(input: CreateExpenseInput) {
         // Invalidate cache for all team members
         await invalidateTeamCache(input.teamId, user.id);
         revalidatePath("/dashboard");
+        // Send notifications asynchronously
+        const teamName = teamMembers[0]?.team?.name || "PayUp Team";
+        const creatorName = user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : "Team Member";
+
+        const emailPromises = teamMembers
+            .filter(member => member.user_id !== user.id)
+            .map(member => sendExpenseNotification(member.user.email, {
+                recipientName: member.user.name.split(' ')[0],
+                creatorName: creatorName,
+                expenseDescription: input.description,
+                totalAmount: input.amount,
+                yourShare: splitAmount,
+                currency: "PHP",
+                category: input.category,
+                teamName: teamName,
+                memberCount: teamMembers.length,
+                deadline: "Upon Request"
+            }));
+
+        // Fire and forget - don't block response
+        Promise.allSettled(emailPromises).catch(console.error);
+
         return { success: true, expense: result };
     } catch (error) {
         console.error("Error creating expense:", error);
@@ -154,10 +184,13 @@ export async function createMonthlyExpense(input: CreateMonthlyExpenseInput) {
             return { error: "Total amount must be greater than 0" };
         }
 
-        // Get team members
+        // Get team members with details
         const teamMembers = await prisma.teamMember.findMany({
             where: { team_id: input.teamId },
-            select: { user_id: true },
+            include: {
+                user: { select: { id: true, name: true, email: true } },
+                team: { select: { name: true } }
+            }
         });
 
         const isMember = teamMembers.some(m => m.user_id === user.id);
@@ -249,6 +282,27 @@ export async function createMonthlyExpense(input: CreateMonthlyExpenseInput) {
         // Invalidate cache after creating monthly expense
         await invalidateTeamCache(input.teamId, user.id);
         revalidatePath("/dashboard");
+        // Send notifications asynchronously
+        const teamName = teamMembers[0]?.team?.name || "PayUp Team";
+        const creatorName = user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : "Team Member";
+
+        const emailPromises = teamMembers
+            .filter(member => member.user_id !== user.id)
+            .map(member => sendExpenseNotification(member.user.email, {
+                recipientName: member.user.name.split(' ')[0],
+                creatorName: creatorName,
+                expenseDescription: `${input.description} (Monthly Plan - ${input.numberOfMonths} months)`,
+                totalAmount: input.totalAmount,
+                yourShare: perParticipantAmount,
+                currency: "PHP",
+                category: input.category,
+                teamName: teamName,
+                memberCount: teamMembers.length,
+                deadline: `Monthly on day ${input.deadlineDay}`
+            }));
+
+        Promise.allSettled(emailPromises).catch(console.error);
+
         return {
             success: true,
             expense: result.parentExpense,
@@ -700,7 +754,7 @@ export async function markSettlementAsPaid(
         // If Debtor marks it, it's UNCONFIRMED (needs verification)
         const newStatus = isCreditor ? Status.paid : Status.unconfirmed;
 
-        await prisma.$transaction(async (tx) => {
+        const result = await prisma.$transaction(async (tx) => {
             const updatedSettlement = await tx.settlement.update({
                 where: { id: settlementId },
                 data: {
@@ -711,15 +765,20 @@ export async function markSettlementAsPaid(
                 },
             });
 
+            // Fetch names AND emails for notifications
             const owedToUser = await tx.user.findUnique({
                 where: { id: settlement.expense.paid_by },
-                select: { name: true },
+                select: { name: true, email: true },
             });
 
             const owedByUser = await tx.user.findUnique({
                 where: { id: settlement.owed_by },
-                select: { name: true },
+                select: { name: true, email: true },
             });
+
+            const team = settlement.expense.team_id
+                ? await tx.team.findUnique({ where: { id: settlement.expense.team_id }, select: { name: true } })
+                : null;
 
             // Log activity
             let details = "";
@@ -737,7 +796,47 @@ export async function markSettlementAsPaid(
                     details: details,
                 },
             });
+
+            return {
+                updatedSettlement,
+                owedToUser,
+                owedByUser,
+                teamName: team?.name || "PayUp Team",
+                expenseDesc: settlement.expense.description
+            };
         });
+
+        // Send Notifications
+        try {
+            if (isCreditor && result.owedByUser?.email) {
+                // Creditor marked as PAID -> Receipt to Debtor
+                await sendPaymentReceipt(result.owedByUser.email, {
+                    recipientName: result.owedByUser.name,
+                    payerName: result.owedToUser?.name || "Creditor",
+                    amount: result.updatedSettlement.amount_owed,
+                    currency: "PHP",
+                    paymentMethod: paymentMethod,
+                    expenseDescription: result.expenseDesc,
+                    teamName: result.teamName,
+                    paidAt: new Date().toLocaleDateString(),
+                    transactionId: result.updatedSettlement.id.slice(0, 8).toUpperCase()
+                });
+            } else if (!isCreditor && result.owedToUser?.email) {
+                // Debtor submitted payment -> Confirm to Creditor
+                await sendSettlementConfirmation(result.owedToUser.email, {
+                    creditorName: result.owedToUser.name,
+                    debtorName: result.owedByUser?.name || "Team Member",
+                    amount: result.updatedSettlement.amount_owed,
+                    currency: "PHP",
+                    paymentMethod: paymentMethod,
+                    expenseDescription: result.expenseDesc,
+                    teamName: result.teamName,
+                    settlementId: result.updatedSettlement.id
+                });
+            }
+        } catch (emailError) {
+            console.error("Failed to send settlement notification:", emailError);
+        }
 
         // Invalidate cache after settlement update
         if (settlement.expense.team_id) {
@@ -768,7 +867,7 @@ export async function verifySettlement(settlementId: string) {
             return { error: "Only the creditor can verify this payment" };
         }
 
-        await prisma.$transaction(async (tx) => {
+        const result = await prisma.$transaction(async (tx) => {
             await tx.settlement.update({
                 where: { id: settlementId },
                 data: {
@@ -777,10 +876,15 @@ export async function verifySettlement(settlementId: string) {
                 }
             });
 
+            // Fetch Debtor info for receipt
             const payer = await tx.user.findUnique({
                 where: { id: settlement.owed_by },
-                select: { name: true }
+                select: { name: true, email: true }
             });
+
+            const team = settlement.expense.team_id
+                ? await tx.team.findUnique({ where: { id: settlement.expense.team_id }, select: { name: true } })
+                : null;
 
             await tx.activityLog.create({
                 data: {
@@ -790,11 +894,23 @@ export async function verifySettlement(settlementId: string) {
                     details: `Verified payment from ${payer?.name || 'Unknown'} for '${settlement.expense.description}'`,
                 }
             });
+
+            return { payer, teamName: team?.name || "PayUp Team", settlement };
         });
 
-        // Invalidate cache after verification
-        if (settlement.expense.team_id) {
-            await invalidateTeamCache(settlement.expense.team_id, user.id);
+        // Send Receipt Notification
+        if (result.payer?.email) {
+            sendPaymentReceipt(result.payer.email, {
+                recipientName: result.payer.name,
+                payerName: user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : "Creditor",
+                amount: settlement.amount_owed,
+                currency: "PHP",
+                paymentMethod: settlement.payment_method || "CASH",
+                expenseDescription: settlement.expense.description,
+                teamName: result.teamName,
+                paidAt: new Date().toLocaleDateString(),
+                transactionId: settlement.id.slice(0, 8).toUpperCase()
+            }).catch(console.error);
         }
         revalidatePath("/dashboard");
         return { success: true };

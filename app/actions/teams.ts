@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { currentUser } from "@clerk/nextjs/server";
 import { TeamRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { sendTeamInvite } from "@/lib/emails";
+import { invalidateTeamCache } from "@/lib/cache";
 
 // Generate a random 6-character alphanumeric code
 function generateTeamCode(): string {
@@ -69,13 +71,12 @@ export async function joinTeam(code: string) {
             return { error: "Not authenticated" };
         }
 
-        // Single query to find team and check membership
+        // Single query to find team, check membership, and get current member count
         const team = await prisma.team.findUnique({
             where: { code: code.toUpperCase() },
             include: {
                 members: {
-                    where: { user_id: user.id },
-                    select: { id: true },
+                    select: { id: true, user_id: true },
                 },
             },
         });
@@ -84,17 +85,98 @@ export async function joinTeam(code: string) {
             return { error: "Team not found" };
         }
 
-        if (team.members.length > 0) {
+        // Check if already a member
+        if (team.members.some(m => m.user_id === user.id)) {
             return { error: "Already a member of this team" };
         }
 
-        await prisma.teamMember.create({
-            data: {
-                team_id: team.id,
-                user_id: user.id,
-                role: TeamRole.MEMBER,
-            },
+        // Use transaction to ensure atomicity
+        await prisma.$transaction(async (tx) => {
+            // 1. Add the new member
+            await tx.teamMember.create({
+                data: {
+                    team_id: team.id,
+                    user_id: user.id,
+                    role: TeamRole.MEMBER,
+                },
+            });
+
+            // 2. Get the new member count (existing + 1)
+            const newMemberCount = team.members.length + 1;
+
+            // 3. Find all pending expenses for this team that need to be recalculated
+            // Only recalculate expenses where the new member wasn't the one who paid
+            const pendingExpenses = await tx.expense.findMany({
+                where: {
+                    team_id: team.id,
+                    deleted_at: null,
+                    paid_by: { not: user.id }, // Only expenses where new member owes money
+                    // Only consider expenses that still have pending settlements
+                    settlements: {
+                        some: {
+                            status: "pending",
+                            deleted_at: null,
+                        },
+                    },
+                },
+                include: {
+                    settlements: {
+                        where: { deleted_at: null },
+                    },
+                },
+            });
+
+            // 4. For each pending expense, recalculate and add settlement for new member
+            for (const expense of pendingExpenses) {
+                // Calculate new split amount based on new member count
+                const newSplitAmount = expense.amount / newMemberCount;
+
+                // Update existing pending settlements with new amount
+                await tx.settlement.updateMany({
+                    where: {
+                        expense_id: expense.id,
+                        status: "pending",
+                        deleted_at: null,
+                    },
+                    data: {
+                        amount_owed: newSplitAmount,
+                    },
+                });
+
+                // Check if new member already has a settlement for this expense (shouldn't happen, but safety check)
+                const existingSettlement = expense.settlements.find(s => s.owed_by === user.id);
+
+                if (!existingSettlement) {
+                    // Create new settlement for the joining member
+                    await tx.settlement.create({
+                        data: {
+                            expense_id: expense.id,
+                            owed_by: user.id,
+                            amount_owed: newSplitAmount,
+                            status: "pending",
+                        },
+                    });
+                }
+            }
+
+            // 5. Log the activity
+            await tx.activityLog.create({
+                data: {
+                    team_id: team.id,
+                    user_id: user.id,
+                    action: "JOINED_TEAM",
+                    details: `Joined the team. Expense shares recalculated for ${pendingExpenses.length} pending expense(s).`,
+                },
+            });
         });
+
+        // Invalidate cache for all team members so they see updated expense shares
+        // Invalidate for the new member
+        await invalidateTeamCache(team.id, user.id);
+        // Invalidate for all existing members so they see the recalculated amounts
+        for (const member of team.members) {
+            await invalidateTeamCache(team.id, member.user_id);
+        }
 
         revalidatePath("/dashboard");
         return { success: true, team: { id: team.id, name: team.name, code: team.code } };
@@ -324,3 +406,45 @@ export async function leaveTeam(teamId: string) {
     }
 }
 
+export async function inviteMemberByEmail(teamId: string, email: string) {
+    try {
+        const user = await currentUser();
+        if (!user) return { error: "Not authenticated" };
+
+        const team = await prisma.team.findUnique({
+            where: { id: teamId },
+            select: { name: true, code: true }
+        });
+
+        if (!team) return { error: "Team not found" };
+
+        // Verify sender is a member
+        const membership = await prisma.teamMember.findUnique({
+            where: {
+                team_id_user_id: {
+                    team_id: teamId,
+                    user_id: user.id
+                }
+            }
+        });
+
+        if (!membership) return { error: "You must be a member to invite others" };
+
+        // Send the invite
+        const result = await sendTeamInvite(email, {
+            inviterName: user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : "A friend",
+            teamName: team.name,
+            teamCode: team.code
+        });
+
+        if (!result.success) {
+            console.error("Failed to send invite:", result.error);
+            return { error: "Failed to send email invite" };
+        }
+
+        return { success: true };
+    } catch (error) {
+        console.error("Error inviting member:", error);
+        return { error: "Failed to invite member" };
+    }
+}
