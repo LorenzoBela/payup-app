@@ -202,10 +202,10 @@ export default function SettingsPage() {
     };
 
     return (
-        <div className="space-y-6 max-w-2xl">
+        <div className="space-y-6 max-w-2xl mx-auto px-1 sm:px-0">
             <div>
-                <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
-                <p className="text-muted-foreground">Manage your account and team preferences</p>
+                <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Settings</h1>
+                <p className="text-sm sm:text-base text-muted-foreground">Manage your account and team preferences</p>
             </div>
 
             {/* Profile Settings */}
@@ -276,7 +276,7 @@ export default function SettingsPage() {
                         <Separator />
 
                         {/* Recalculate Expenses */}
-                        <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 rounded-lg border bg-muted/30">
                             <div className="space-y-0.5">
                                 <Label>Recalculate Expenses</Label>
                                 <p className="text-sm text-muted-foreground">
@@ -325,7 +325,7 @@ export default function SettingsPage() {
                                     <div className="text-sm text-muted-foreground">Loading members...</div>
                                 ) : (
                                     members.map((member) => (
-                                        <div key={member.id} className="flex items-center justify-between p-2 rounded-lg border bg-card/50">
+                                        <div key={member.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-lg border bg-card/50 gap-3">
                                             <div className="flex items-center gap-3">
                                                 <Avatar className="h-8 w-8">
                                                     <AvatarFallback>{member.name.slice(0, 2).toUpperCase()}</AvatarFallback>
@@ -475,7 +475,7 @@ export default function SettingsPage() {
                             <Separator />
                         </>
                     )}
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                         <div className="space-y-0.5">
                             <Label>Delete Account</Label>
                             <p className="text-sm text-muted-foreground">

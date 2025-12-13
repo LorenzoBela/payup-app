@@ -76,7 +76,7 @@ export default function ReportsPage() {
             </div>
 
             {/* Overview Stats */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">Total Spent</CardTitle>
@@ -208,7 +208,7 @@ export default function ReportsPage() {
                                 <div className="p-4 bg-muted/50 rounded-lg">
                                     <h4 className="font-semibold mb-1">Spending Distribution</h4>
                                     <p className="text-sm text-muted-foreground">
-                                        You have expenses in {safeCategories.length} categories. 
+                                        You have expenses in {safeCategories.length} categories.
                                         {safeStats.settlementsTotal > 0 && (
                                             <> {Math.round((safeStats.settlementsCompleted / safeStats.settlementsTotal) * 100)}% of settlements are completed.</>
                                         )}

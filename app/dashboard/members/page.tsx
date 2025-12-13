@@ -62,9 +62,9 @@ export default function MembersPage() {
 
     return (
         <div className="space-y-8">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div className="flex flex-col gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Team Members</h1>
+                    <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Team Members</h1>
                     <p className="text-muted-foreground">Manage your team and invites</p>
                 </div>
             </div>
@@ -98,37 +98,39 @@ export default function MembersPage() {
             {/* Member List */}
             <Card>
                 <CardHeader>
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                        <CardTitle>Members ({members.length})</CardTitle>
-                        <div className="flex items-center gap-3">
-                            <div className="relative w-full sm:w-auto sm:max-w-sm">
-                                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                                <Input
-                                    type="search"
-                                    placeholder="Search members..."
-                                    className="pl-8 w-full"
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                />
-                            </div>
-                            {/* View Toggle */}
-                            <div className="flex items-center gap-1 p-1 bg-muted rounded-lg">
-                                <Button
-                                    variant={viewMode === "grid" ? "secondary" : "ghost"}
-                                    size="sm"
-                                    onClick={() => setViewMode("grid")}
-                                    className="h-8 w-8 p-0"
-                                >
-                                    <Grid3X3 className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                    variant={viewMode === "list" ? "secondary" : "ghost"}
-                                    size="sm"
-                                    onClick={() => setViewMode("list")}
-                                    className="h-8 w-8 p-0"
-                                >
-                                    <List className="w-4 h-4" />
-                                </Button>
+                    <div className="flex flex-col gap-3 w-full">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <CardTitle>Members ({members.length})</CardTitle>
+                            <div className="flex items-center gap-3 w-full sm:w-auto">
+                                <div className="relative flex-1 sm:w-64">
+                                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                                    <Input
+                                        type="search"
+                                        placeholder="Search members..."
+                                        className="pl-8 w-full"
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                    />
+                                </div>
+                                {/* View Toggle */}
+                                <div className="flex items-center gap-1 p-1 bg-muted rounded-lg">
+                                    <Button
+                                        variant={viewMode === "grid" ? "secondary" : "ghost"}
+                                        size="sm"
+                                        onClick={() => setViewMode("grid")}
+                                        className="h-8 w-8 p-0"
+                                    >
+                                        <Grid3X3 className="w-4 h-4" />
+                                    </Button>
+                                    <Button
+                                        variant={viewMode === "list" ? "secondary" : "ghost"}
+                                        size="sm"
+                                        onClick={() => setViewMode("list")}
+                                        className="h-8 w-8 p-0"
+                                    >
+                                        <List className="w-4 h-4" />
+                                    </Button>
+                                </div>
                             </div>
                         </div>
                     </div>

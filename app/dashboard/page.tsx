@@ -120,26 +120,28 @@ export default function DashboardPage() {
       {selectedTeam ? (
         <>
           {/* Team Header */}
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight">{selectedTeam.name}</h1>
-              <p className="text-muted-foreground flex items-center gap-2 mt-1">
-                Team Code: <code className="bg-muted px-2 py-0.5 rounded font-mono text-sm">{selectedTeam.code}</code>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight truncate">{selectedTeam.name}</h1>
+              <p className="text-muted-foreground flex flex-wrap items-center gap-2 mt-1 text-sm">
+                <span className="flex items-center gap-1">
+                  Team Code: <code className="bg-muted px-2 py-0.5 rounded font-mono text-xs sm:text-sm">{selectedTeam.code}</code>
+                </span>
                 <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
                   {selectedTeam.role}
                 </span>
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 w-full sm:w-auto">
               <AddExpenseDialog teamId={selectedTeam.id} onExpenseAdded={handleExpenseAdded} />
-              <Button variant="outline" onClick={() => document.getElementById('settlements-section')?.scrollIntoView({ behavior: 'smooth' })}>
+              <Button variant="outline" className="flex-1 sm:flex-initial" onClick={() => document.getElementById('settlements-section')?.scrollIntoView({ behavior: 'smooth' })}>
                 Settle Up
               </Button>
             </div>
           </div>
 
           {/* Stats Cards with skeleton loading */}
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Total Balance</CardTitle>
@@ -191,11 +193,11 @@ export default function DashboardPage() {
           </div>
 
           {/* Main Dashboard Content Area */}
-          <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-7">
-            <div className="md:col-span-1 lg:col-span-4">
+          <div className="grid gap-4 grid-cols-1 lg:grid-cols-7">
+            <div className="lg:col-span-4">
               <ExpenseList teamId={selectedTeam.id} refreshKey={refreshKey} />
             </div>
-            <div className="md:col-span-1 lg:col-span-3 space-y-4">
+            <div className="lg:col-span-3 space-y-4">
               <div id="settlements-section">
                 <SettlementsList teamId={selectedTeam.id} refreshKey={refreshKey} />
               </div>
@@ -231,8 +233,8 @@ export default function DashboardPage() {
                             <p className="text-xs text-muted-foreground truncate">{member.email}</p>
                           </div>
                           <span className={`text-xs px-2 py-0.5 rounded-full ${member.role === "ADMIN"
-                              ? "bg-primary/10 text-primary"
-                              : "bg-muted text-muted-foreground"
+                            ? "bg-primary/10 text-primary"
+                            : "bg-muted text-muted-foreground"
                             }`}>
                             {member.role}
                           </span>

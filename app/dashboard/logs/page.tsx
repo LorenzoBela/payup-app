@@ -68,14 +68,14 @@ export default function LogsPage() {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center gap-2">
-                <History className="w-8 h-8 text-primary" />
-                <h1 className="text-3xl font-bold">Activity Logs</h1>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <History className="w-7 h-7 sm:w-8 sm:h-8 text-primary" />
+                <h1 className="text-2xl sm:text-3xl font-bold">Activity Logs</h1>
             </div>
 
             <Card>
                 <CardHeader>
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <CardTitle>Recent Activity</CardTitle>
                         {/* View Toggle */}
                         <div className="flex items-center gap-1 p-1 bg-muted rounded-lg">
