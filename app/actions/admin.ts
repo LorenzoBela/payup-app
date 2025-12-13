@@ -2,7 +2,9 @@
 
 import { prisma } from "@/lib/prisma";
 import { requireSuperAdmin } from "@/lib/auth-utils";
-import { Status, UserRole } from "@prisma/client";
+import { Status, UserRole, TeamRole } from "@prisma/client";
+import { revalidatePath } from "next/cache";
+import { invalidateTeamCache } from "@/lib/cache";
 
 /**
  * Get system-wide statistics for the admin dashboard.
@@ -1027,3 +1029,184 @@ export async function getPerformanceMetrics() {
     }
 }
 
+/**
+ * Search for users that can be added to a team.
+ * Returns users who are NOT already members of the specified team.
+ * Requires SuperAdmin privileges.
+ */
+export async function searchUsersForTeam(teamId: string, query: string) {
+    await requireSuperAdmin();
+
+    if (!query || query.length < 2) {
+        return { users: [] };
+    }
+
+    try {
+        // Get current team members
+        const teamMembers = await prisma.teamMember.findMany({
+            where: { team_id: teamId },
+            select: { user_id: true },
+        });
+        const memberIds = teamMembers.map(m => m.user_id);
+
+        // Search for users not in the team
+        const users = await prisma.user.findMany({
+            where: {
+                deleted_at: null,
+                id: { notIn: memberIds },
+                OR: [
+                    { name: { contains: query, mode: 'insensitive' } },
+                    { email: { contains: query, mode: 'insensitive' } },
+                ],
+            },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+            },
+            take: 10,
+        });
+
+        return { users };
+    } catch (error) {
+        console.error("Error searching users for team:", error);
+        return { users: [], error: "Failed to search users" };
+    }
+}
+
+/**
+ * Add an existing user to a team (SuperAdmin only).
+ * Recalculates pending expense shares just like joinTeam does.
+ * Requires SuperAdmin privileges.
+ */
+export async function adminAddUserToTeam(
+    teamId: string,
+    userId: string,
+    role: TeamRole = TeamRole.MEMBER
+) {
+    await requireSuperAdmin();
+
+    try {
+        // Get team with current members
+        const team = await prisma.team.findUnique({
+            where: { id: teamId },
+            include: {
+                members: {
+                    select: { id: true, user_id: true },
+                },
+            },
+        });
+
+        if (!team) {
+            return { success: false, error: "Team not found" };
+        }
+
+        // Check if user exists
+        const user = await prisma.user.findUnique({
+            where: { id: userId, deleted_at: null },
+            select: { id: true, name: true },
+        });
+
+        if (!user) {
+            return { success: false, error: "User not found" };
+        }
+
+        // Check if already a member
+        if (team.members.some(m => m.user_id === userId)) {
+            return { success: false, error: "User is already a member of this team" };
+        }
+
+        // Use transaction for atomicity (mirrors joinTeam logic)
+        await prisma.$transaction(async (tx) => {
+            // 1. Add the new member
+            await tx.teamMember.create({
+                data: {
+                    team_id: team.id,
+                    user_id: userId,
+                    role: role,
+                },
+            });
+
+            // 2. Get the new member count
+            const newMemberCount = team.members.length + 1;
+
+            // 3. Find all pending expenses for this team
+            const pendingExpenses = await tx.expense.findMany({
+                where: {
+                    team_id: team.id,
+                    deleted_at: null,
+                    settlements: {
+                        some: {
+                            status: "pending",
+                            deleted_at: null,
+                        },
+                    },
+                },
+                include: {
+                    settlements: {
+                        where: { deleted_at: null },
+                    },
+                },
+            });
+
+            // 4. Recalculate and add settlement for new member
+            for (const expense of pendingExpenses) {
+                const newSplitAmount = expense.amount / newMemberCount;
+
+                // Update existing pending settlements
+                await tx.settlement.updateMany({
+                    where: {
+                        expense_id: expense.id,
+                        status: "pending",
+                        deleted_at: null,
+                    },
+                    data: {
+                        amount_owed: newSplitAmount,
+                    },
+                });
+
+                // Check if user already has a settlement
+                const existingSettlement = expense.settlements.find(s => s.owed_by === userId);
+
+                if (!existingSettlement) {
+                    // Create settlement for the new member
+                    await tx.settlement.create({
+                        data: {
+                            expense_id: expense.id,
+                            owed_by: userId,
+                            amount_owed: newSplitAmount,
+                            status: "pending",
+                        },
+                    });
+                }
+            }
+
+            // 5. Log the activity
+            await tx.activityLog.create({
+                data: {
+                    team_id: team.id,
+                    user_id: userId,
+                    action: "ADDED_TO_TEAM",
+                    details: `Added to team by admin. Expense shares recalculated for ${pendingExpenses.length} pending expense(s).`,
+                },
+            });
+        });
+
+        // Invalidate cache
+        await invalidateTeamCache(team.id, userId);
+        for (const member of team.members) {
+            await invalidateTeamCache(team.id, member.user_id);
+        }
+
+        revalidatePath(`/admin/teams/${teamId}`);
+
+        return {
+            success: true,
+            message: `"${user.name}" has been added to the team`,
+        };
+    } catch (error) {
+        console.error("Error adding user to team:", error);
+        return { success: false, error: "Failed to add user to team" };
+    }
+}

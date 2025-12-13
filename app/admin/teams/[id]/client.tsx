@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { softDeleteTeam, removeUserFromTeam } from "@/app/actions/admin";
+import { softDeleteTeam, removeUserFromTeam, searchUsersForTeam, adminAddUserToTeam } from "@/app/actions/admin";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
     Dialog,
@@ -22,12 +23,14 @@ import {
     Receipt,
     Trash2,
     UserMinus,
+    UserPlus,
     Loader2,
     Calendar,
     Hash,
     Activity,
     DollarSign,
-    Shield
+    Shield,
+    Search
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import Link from "next/link";
@@ -72,6 +75,73 @@ export function TeamDetailsClient({ team }: TeamDetailsClientProps) {
     const [isDeleting, setIsDeleting] = useState(false);
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [removingMember, setRemovingMember] = useState<string | null>(null);
+
+    // Add Member state
+    const [addMemberDialogOpen, setAddMemberDialogOpen] = useState(false);
+    const [userSearchQuery, setUserSearchQuery] = useState("");
+    const [searchResults, setSearchResults] = useState<Array<{
+        id: string;
+        name: string;
+        email: string;
+        role: string;
+    }>>([]);
+    const [selectedUser, setSelectedUser] = useState<{
+        id: string;
+        name: string;
+        email: string;
+    } | null>(null);
+    const [selectedRole, setSelectedRole] = useState<"ADMIN" | "MEMBER">("MEMBER");
+    const [isSearching, setIsSearching] = useState(false);
+    const [isAddingMember, setIsAddingMember] = useState(false);
+
+    // Debounced search function
+    const searchUsers = useCallback(async (query: string) => {
+        if (query.length < 2) {
+            setSearchResults([]);
+            return;
+        }
+        setIsSearching(true);
+        try {
+            const result = await searchUsersForTeam(team.id, query);
+            setSearchResults(result.users || []);
+        } catch {
+            setSearchResults([]);
+        } finally {
+            setIsSearching(false);
+        }
+    }, [team.id]);
+
+    // Debounce effect for search
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            searchUsers(userSearchQuery);
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [userSearchQuery, searchUsers]);
+
+    // Handle adding member
+    const handleAddMember = async () => {
+        if (!selectedUser) return;
+        setIsAddingMember(true);
+        try {
+            const result = await adminAddUserToTeam(team.id, selectedUser.id, selectedRole);
+            if (result.success) {
+                toast.success(result.message);
+                setAddMemberDialogOpen(false);
+                setSelectedUser(null);
+                setUserSearchQuery("");
+                setSearchResults([]);
+                setSelectedRole("MEMBER");
+                router.refresh();
+            } else {
+                toast.error(result.error);
+            }
+        } catch {
+            toast.error("Failed to add member");
+        } finally {
+            setIsAddingMember(false);
+        }
+    };
 
     const handleDeleteTeam = async () => {
         setIsDeleting(true);
@@ -223,14 +293,144 @@ export function TeamDetailsClient({ team }: TeamDetailsClientProps) {
 
             {/* Members Section */}
             <Card>
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <Users className="h-5 w-5" />
-                        Team Members
-                    </CardTitle>
-                    <CardDescription>
-                        {team.memberCount} members in this team
-                    </CardDescription>
+                <CardHeader className="flex flex-row items-center justify-between">
+                    <div>
+                        <CardTitle className="flex items-center gap-2">
+                            <Users className="h-5 w-5" />
+                            Team Members
+                        </CardTitle>
+                        <CardDescription>
+                            {team.memberCount} members in this team
+                        </CardDescription>
+                    </div>
+                    <Dialog open={addMemberDialogOpen} onOpenChange={(open) => {
+                        setAddMemberDialogOpen(open);
+                        if (!open) {
+                            setSelectedUser(null);
+                            setUserSearchQuery("");
+                            setSearchResults([]);
+                            setSelectedRole("MEMBER");
+                        }
+                    }}>
+                        <DialogTrigger asChild>
+                            <Button className="gap-2">
+                                <UserPlus className="h-4 w-4" />
+                                Add Member
+                            </Button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-md">
+                            <DialogHeader>
+                                <DialogTitle>Add Member to Team</DialogTitle>
+                                <DialogDescription>
+                                    Search for an existing user to add to this team.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <div className="space-y-4 py-4">
+                                {/* User Search */}
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">Search User</label>
+                                    <div className="relative">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input
+                                            placeholder="Search by name or email..."
+                                            value={userSearchQuery}
+                                            onChange={(e) => setUserSearchQuery(e.target.value)}
+                                            className="pl-9"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Search Results */}
+                                {isSearching ? (
+                                    <div className="flex items-center justify-center py-4">
+                                        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                                    </div>
+                                ) : searchResults.length > 0 ? (
+                                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                                        {searchResults.map((user) => (
+                                            <div
+                                                key={user.id}
+                                                className={`flex items-center justify-between p-3 rounded-md border cursor-pointer transition-colors ${selectedUser?.id === user.id
+                                                        ? "border-primary bg-primary/5"
+                                                        : "hover:bg-muted"
+                                                    }`}
+                                                onClick={() => setSelectedUser(user)}
+                                            >
+                                                <div>
+                                                    <p className="font-medium">{user.name}</p>
+                                                    <p className="text-xs text-muted-foreground">{user.email}</p>
+                                                </div>
+                                                {user.role === "SuperAdmin" && (
+                                                    <Badge variant="destructive" className="gap-1">
+                                                        <Shield className="h-3 w-3" />
+                                                        Admin
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : userSearchQuery.length >= 2 ? (
+                                    <p className="text-sm text-muted-foreground text-center py-4">
+                                        No users found
+                                    </p>
+                                ) : userSearchQuery.length > 0 ? (
+                                    <p className="text-sm text-muted-foreground text-center py-4">
+                                        Type at least 2 characters to search
+                                    </p>
+                                ) : null}
+
+                                {/* Selected User & Role */}
+                                {selectedUser && (
+                                    <div className="space-y-2 pt-2 border-t">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-sm font-medium">Selected:</span>
+                                            <span className="text-sm">{selectedUser.name}</span>
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-sm font-medium">Role:</span>
+                                            <div className="flex gap-2">
+                                                <Button
+                                                    size="sm"
+                                                    variant={selectedRole === "MEMBER" ? "default" : "outline"}
+                                                    onClick={() => setSelectedRole("MEMBER")}
+                                                >
+                                                    Member
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    variant={selectedRole === "ADMIN" ? "default" : "outline"}
+                                                    onClick={() => setSelectedRole("ADMIN")}
+                                                >
+                                                    Admin
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            <DialogFooter>
+                                <Button
+                                    variant="outline"
+                                    onClick={() => setAddMemberDialogOpen(false)}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    onClick={handleAddMember}
+                                    disabled={!selectedUser || isAddingMember}
+                                >
+                                    {isAddingMember ? (
+                                        <>
+                                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                            Adding...
+                                        </>
+                                    ) : (
+                                        "Add Member"
+                                    )}
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
                 </CardHeader>
                 <CardContent>
                     {team.members.length > 0 ? (
