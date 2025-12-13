@@ -266,6 +266,101 @@ export async function createMonthlyExpense(input: CreateMonthlyExpenseInput) {
     }
 }
 
+// Get detailed expense by ID for the expense detail page
+export async function getExpenseById(expenseId: string) {
+    try {
+        const user = await currentUser();
+        if (!user) {
+            return { error: "Not authenticated" };
+        }
+
+        const expense = await prisma.expense.findUnique({
+            where: { id: expenseId, deleted_at: null },
+            include: {
+                settlements: {
+                    where: { deleted_at: null },
+                    orderBy: { created_at: "desc" },
+                },
+                child_expenses: {
+                    where: { deleted_at: null },
+                    orderBy: { month_number: "asc" },
+                    include: {
+                        settlements: {
+                            where: { deleted_at: null },
+                        },
+                    },
+                },
+            },
+        });
+
+        if (!expense) {
+            return { error: "Expense not found" };
+        }
+
+        // Verify user has access to this expense's team
+        if (expense.team_id) {
+            const membership = await prisma.teamMember.findUnique({
+                where: {
+                    team_id_user_id: {
+                        team_id: expense.team_id,
+                        user_id: user.id,
+                    },
+                },
+            });
+            if (!membership) {
+                return { error: "Not authorized to view this expense" };
+            }
+        }
+
+        // Collect all user IDs
+        const allUserIds = new Set<string>();
+        allUserIds.add(expense.paid_by);
+        expense.settlements.forEach((s) => allUserIds.add(s.owed_by));
+        expense.child_expenses.forEach((c) => {
+            allUserIds.add(c.paid_by);
+            c.settlements.forEach((s) => allUserIds.add(s.owed_by));
+        });
+
+        const users = await prisma.user.findMany({
+            where: { id: { in: Array.from(allUserIds) } },
+            select: { id: true, name: true, email: true },
+        });
+
+        const userMap = new Map(users.map((u) => [u.id, u]));
+
+        // Get team info
+        const team = expense.team_id
+            ? await prisma.team.findUnique({
+                where: { id: expense.team_id },
+                select: { id: true, name: true },
+            })
+            : null;
+
+        return {
+            expense: {
+                ...expense,
+                paid_by_user: userMap.get(expense.paid_by) || { name: "Unknown" },
+                team,
+                settlements: expense.settlements.map((s) => ({
+                    ...s,
+                    member: userMap.get(s.owed_by) || { name: "Unknown" },
+                })),
+                child_expenses: expense.child_expenses.map((c) => ({
+                    ...c,
+                    settlements: c.settlements.map((s) => ({
+                        ...s,
+                        member: userMap.get(s.owed_by) || { name: "Unknown" },
+                    })),
+                })),
+            },
+        };
+    } catch (error) {
+        console.error("Error fetching expense:", error);
+        return { error: "Failed to fetch expense" };
+    }
+}
+
+
 // Optimized: Single query with JOIN to get expenses with payer names
 export async function getTeamExpenses(
     teamId: string,
@@ -283,23 +378,40 @@ export async function getTeamExpenses(
             return { expenses: [], nextCursor: null };
         }
 
-        // Single optimized query with user data included via raw SQL or subquery
-        // Using Prisma's approach with team members to get user names
+        // Only fetch top-level expenses (exclude child monthly expenses)
         const expenses = await prisma.expense.findMany({
             where: {
                 team_id: teamId,
                 deleted_at: null,
+                parent_expense_id: null, // Only show parent/standalone expenses
                 ...(cursor ? { id: { lt: cursor } } : {}),
             },
             orderBy: { created_at: "desc" },
-            take: limit + 1, // Fetch one extra to check if there's more
+            take: limit + 1,
+            include: {
+                settlements: {
+                    where: { deleted_at: null },
+                    select: {
+                        id: true,
+                        owed_by: true,
+                        amount_owed: true,
+                        status: true,
+                        paid_at: true,
+                    },
+                },
+            },
         });
 
-        // Batch fetch user names in single query
-        const userIds = [...new Set(expenses.map((e) => e.paid_by))];
-        const users = userIds.length > 0
+        // Collect all user IDs (paid_by + all settlement owed_by)
+        const allUserIds = new Set<string>();
+        expenses.forEach((e) => {
+            allUserIds.add(e.paid_by);
+            e.settlements.forEach((s) => allUserIds.add(s.owed_by));
+        });
+
+        const users = allUserIds.size > 0
             ? await prisma.user.findMany({
-                where: { id: { in: userIds } },
+                where: { id: { in: Array.from(allUserIds) } },
                 select: { id: true, name: true },
             })
             : [];
@@ -315,6 +427,11 @@ export async function getTeamExpenses(
             expenses: resultExpenses.map((expense) => ({
                 ...expense,
                 paid_by_name: userMap.get(expense.paid_by) || "Unknown",
+                // Map settlements with member names
+                settlements: expense.settlements.map((s) => ({
+                    ...s,
+                    member_name: userMap.get(s.owed_by) || "Unknown",
+                })),
             })),
             nextCursor,
         };
@@ -323,6 +440,68 @@ export async function getTeamExpenses(
         return { expenses: [], nextCursor: null };
     }
 }
+
+
+// Get monthly breakdown (child expenses) for a parent monthly expense
+export async function getMonthlyBreakdown(parentExpenseId: string) {
+    try {
+        const user = await currentUser();
+        if (!user) {
+            return { childExpenses: [] };
+        }
+
+        const childExpenses = await prisma.expense.findMany({
+            where: {
+                parent_expense_id: parentExpenseId,
+                deleted_at: null,
+            },
+            orderBy: { month_number: "asc" },
+            include: {
+                settlements: {
+                    where: { deleted_at: null },
+                    select: {
+                        id: true,
+                        owed_by: true,
+                        amount_owed: true,
+                        status: true,
+                        paid_at: true,
+                    },
+                },
+            },
+        });
+
+        // Collect all user IDs (paid_by + all settlement owed_by)
+        const allUserIds = new Set<string>();
+        childExpenses.forEach((e) => {
+            allUserIds.add(e.paid_by);
+            e.settlements.forEach((s) => allUserIds.add(s.owed_by));
+        });
+
+        const users = allUserIds.size > 0
+            ? await prisma.user.findMany({
+                where: { id: { in: Array.from(allUserIds) } },
+                select: { id: true, name: true },
+            })
+            : [];
+
+        const userMap = new Map(users.map((u) => [u.id, u.name]));
+
+        return {
+            childExpenses: childExpenses.map((expense) => ({
+                ...expense,
+                paid_by_name: userMap.get(expense.paid_by) || "Unknown",
+                settlements: expense.settlements.map((s) => ({
+                    ...s,
+                    member_name: userMap.get(s.owed_by) || "Unknown",
+                })),
+            })),
+        };
+    } catch (error) {
+        console.error("Error fetching monthly breakdown:", error);
+        return { childExpenses: [] };
+    }
+}
+
 
 export async function deleteExpense(expenseId: string) {
     try {
@@ -1080,6 +1259,7 @@ export async function getExpenseStats(teamId: string) {
             const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
             // Single optimized raw SQL query combining all aggregations
+            // Only count parent/standalone expenses (exclude child monthly expenses)
             const result = await prisma.$queryRaw<Array<{
                 total_spent: number | null;
                 this_month_spent: number | null;
@@ -1098,7 +1278,7 @@ export async function getExpenseStats(teamId: string) {
                      INNER JOIN expenses e3 ON s3.expense_id = e3.id 
                      WHERE e3.team_id = ${teamId} AND e3.deleted_at IS NULL AND s3.deleted_at IS NULL AND s3.status = 'paid') as paid_settlements
                 FROM expenses e
-                WHERE e.team_id = ${teamId} AND e.deleted_at IS NULL
+                WHERE e.team_id = ${teamId} AND e.deleted_at IS NULL AND e.parent_expense_id IS NULL
             `;
 
             const data = result[0];
@@ -1129,11 +1309,13 @@ export async function getCategoryStats(teamId: string) {
         if (!user) return [];
 
         // Use groupBy for efficient category aggregation
+        // Only count parent/standalone expenses (exclude child monthly expenses)
         const categoryGroups = await prisma.expense.groupBy({
             by: ['category'],
             where: {
                 team_id: teamId,
                 deleted_at: null,
+                parent_expense_id: null, // Exclude child monthly expenses
             },
             _sum: { amount: true },
             _count: true,

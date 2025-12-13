@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Copy, UserPlus, Mail, Shield, Loader2, Users } from "lucide-react";
+import { Search, Copy, UserPlus, Mail, Shield, Loader2, Users, Grid3X3, List, Calendar } from "lucide-react";
 import { useTeam } from "@/components/dashboard/team-provider";
 import { useTeamMembers } from "@/lib/hooks/use-dashboard-data";
 import { toast } from "sonner";
@@ -25,6 +25,7 @@ function getInitials(name: string) {
 export default function MembersPage() {
     const { selectedTeam, isLoading: teamLoading } = useTeam();
     const [searchQuery, setSearchQuery] = useState("");
+    const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
 
     const { members, isLoading: membersLoading } = useTeamMembers(selectedTeam?.id || null);
 
@@ -99,39 +100,109 @@ export default function MembersPage() {
                 <CardHeader>
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <CardTitle>Members ({members.length})</CardTitle>
-                        <div className="relative w-full sm:w-auto sm:max-w-sm">
-                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                            <Input
-                                type="search"
-                                placeholder="Search members..."
-                                className="pl-8 w-full"
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                            />
+                        <div className="flex items-center gap-3">
+                            <div className="relative w-full sm:w-auto sm:max-w-sm">
+                                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                    type="search"
+                                    placeholder="Search members..."
+                                    className="pl-8 w-full"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                />
+                            </div>
+                            {/* View Toggle */}
+                            <div className="flex items-center gap-1 p-1 bg-muted rounded-lg">
+                                <Button
+                                    variant={viewMode === "grid" ? "secondary" : "ghost"}
+                                    size="sm"
+                                    onClick={() => setViewMode("grid")}
+                                    className="h-8 w-8 p-0"
+                                >
+                                    <Grid3X3 className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                    variant={viewMode === "list" ? "secondary" : "ghost"}
+                                    size="sm"
+                                    onClick={() => setViewMode("list")}
+                                    className="h-8 w-8 p-0"
+                                >
+                                    <List className="w-4 h-4" />
+                                </Button>
+                            </div>
                         </div>
                     </div>
                 </CardHeader>
                 <CardContent>
                     {membersLoading ? (
-                        <div className="space-y-4">
-                            {[...Array(3)].map((_, i) => (
-                                <div key={i} className="flex items-center justify-between p-4 rounded-lg border">
-                                    <div className="flex items-center gap-4">
-                                        <Skeleton className="h-10 w-10 rounded-full" />
-                                        <div className="space-y-2">
-                                            <Skeleton className="h-4 w-32" />
-                                            <Skeleton className="h-3 w-48" />
+                        viewMode === "grid" ? (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {[...Array(6)].map((_, i) => (
+                                    <div key={i} className="h-40 rounded-lg border bg-muted/20 animate-pulse" />
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="space-y-4">
+                                {[...Array(3)].map((_, i) => (
+                                    <div key={i} className="flex items-center justify-between p-4 rounded-lg border">
+                                        <div className="flex items-center gap-4">
+                                            <Skeleton className="h-10 w-10 rounded-full" />
+                                            <div className="space-y-2">
+                                                <Skeleton className="h-4 w-32" />
+                                                <Skeleton className="h-3 w-48" />
+                                            </div>
                                         </div>
+                                        <Skeleton className="h-4 w-24" />
                                     </div>
-                                    <Skeleton className="h-4 w-24" />
-                                </div>
-                            ))}
-                        </div>
+                                ))}
+                            </div>
+                        )
                     ) : filteredMembers.length === 0 ? (
                         <p className="text-muted-foreground text-center py-8">
                             {searchQuery ? "No members found matching your search." : "No members in this team yet."}
                         </p>
+                    ) : viewMode === "grid" ? (
+                        /* Grid View - Minimalist */
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {filteredMembers.map((member) => (
+                                <div
+                                    key={member.id}
+                                    className="border rounded-lg p-5 bg-card hover:bg-accent/5 transition-colors"
+                                >
+                                    <div className="flex flex-col items-center text-center">
+                                        <Avatar className="h-14 w-14 mb-3">
+                                            <AvatarImage src="" />
+                                            <AvatarFallback className="text-lg">
+                                                {getInitials(member.name)}
+                                            </AvatarFallback>
+                                        </Avatar>
+                                        <div className="space-y-1.5">
+                                            <div className="flex items-center justify-center gap-2">
+                                                <h3 className="font-medium text-foreground">{member.name}</h3>
+                                                {member.role === "ADMIN" && (
+                                                    <Badge variant="secondary" className="text-[10px] h-5 px-1.5">
+                                                        <Shield className="w-3 h-3 mr-1" />
+                                                        Admin
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center justify-center gap-1 text-sm text-muted-foreground">
+                                                <Mail className="w-3 h-3" />
+                                                <span className="truncate max-w-[180px]">{member.email}</span>
+                                            </div>
+                                        </div>
+                                        <div className="mt-4 pt-3 border-t w-full">
+                                            <div className="flex items-center justify-center gap-1 text-xs text-muted-foreground">
+                                                <Calendar className="w-3 h-3" />
+                                                <span>Joined {new Date(member.joinedAt).toLocaleDateString()}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     ) : (
+                        /* List View */
                         <div className="space-y-4">
                             {filteredMembers.map((member) => (
                                 <div
