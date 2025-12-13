@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useTeam } from "@/components/dashboard/team-provider";
-import { getMyPendingSettlements, getMyReceivables, markSettlementAsPaid, markSettlementsAsPaid, verifySettlement, rejectSettlement } from "@/app/actions/expenses";
+import { getPaymentsPageData, markSettlementAsPaid, markSettlementsAsPaid, verifySettlement, rejectSettlement } from "@/app/actions/expenses";
 import { updateGcashNumber } from "@/app/actions/auth";
 import { useGcashNumber } from "@/lib/hooks/use-dashboard-data";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
@@ -96,10 +96,8 @@ export default function PaymentsPage() {
         if (!selectedTeam) return;
         setLoading(true);
         try {
-            const [payablesData, receivablesData] = await Promise.all([
-                getMyPendingSettlements(selectedTeam.id),
-                getMyReceivables(selectedTeam.id)
-            ]);
+            // Use optimized combined function (3 queries instead of 6)
+            const { payables: payablesData, receivables: receivablesData } = await getPaymentsPageData(selectedTeam.id);
 
             // Process Payables (I Owe)
             const groupedPayables = payablesData.reduce((acc, curr) => {

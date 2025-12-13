@@ -5,6 +5,25 @@ let redis: RedisClientType | null = null;
 let isConnecting = false;
 let connectionPromise: Promise<void> | null = null;
 
+// In-memory cache fallback (for when Redis is not available)
+interface MemoryCacheEntry {
+    value: string;
+    expiresAt: number;
+}
+const memoryCache = new Map<string, MemoryCacheEntry>();
+
+// Cleanup expired entries periodically (every 60 seconds)
+if (typeof setInterval !== 'undefined') {
+    setInterval(() => {
+        const now = Date.now();
+        for (const [key, entry] of memoryCache.entries()) {
+            if (entry.expiresAt < now) {
+                memoryCache.delete(key);
+            }
+        }
+    }, 60000);
+}
+
 // Initialize Redis client (will gracefully fail if not configured)
 async function getRedisClient(): Promise<RedisClientType | null> {
     // Check if all required env vars are present
@@ -70,11 +89,14 @@ export const cacheKeys = {
     teamMembers: (teamId: string) => `members:${teamId}`,
     userTeams: (userId: string) => `teams:${userId}`,
     dashboardData: (teamId: string, userId: string) => `dashboard:${teamId}:${userId}`,
+    paymentsData: (teamId: string, userId: string) => `payments:${teamId}:${userId}`,
+    receiptsData: (teamId: string) => `receipts:${teamId}`,
+    teamSettlements: (teamId: string) => `settlements:${teamId}`,
 };
 
 /**
  * Get cached value or execute fetcher and cache result
- * Falls back to direct fetch if Redis is not configured or unavailable
+ * Falls back to in-memory cache if Redis is not configured or unavailable
  */
 export async function cached<T>(
     key: string,
@@ -83,45 +105,67 @@ export async function cached<T>(
 ): Promise<T> {
     const client = await getRedisClient();
 
-    // If Redis is not available, just run the fetcher
-    if (!client) {
-        return fetcher();
-    }
+    // Try Redis first if available
+    if (client) {
+        try {
+            // Try to get from Redis
+            const cachedValue = await client.get(key);
+            if (cachedValue !== null) {
+                return JSON.parse(cachedValue) as T;
+            }
 
-    try {
-        // Try to get from cache
-        const cachedValue = await client.get(key);
-        if (cachedValue !== null) {
-            return JSON.parse(cachedValue) as T;
+            // Cache miss - fetch and store
+            const data = await fetcher();
+
+            // Store in Redis (non-blocking)
+            client.setEx(key, ttlSeconds, JSON.stringify(data)).catch((err) => {
+                console.warn("Redis write failed:", err);
+            });
+
+            return data;
+        } catch (error) {
+            console.warn("Redis error, falling back to memory cache:", error);
         }
-
-        // Cache miss - fetch and store
-        const data = await fetcher();
-
-        // Store in cache (non-blocking)
-        client.setEx(key, ttlSeconds, JSON.stringify(data)).catch((err) => {
-            console.warn("Cache write failed:", err);
-        });
-
-        return data;
-    } catch (error) {
-        // On any cache error, fall back to direct fetch
-        console.warn("Cache read failed, fetching directly:", error);
-        return fetcher();
     }
+
+    // Fallback: In-memory cache (works without Redis)
+    const now = Date.now();
+    const memoryCacheEntry = memoryCache.get(key);
+    
+    if (memoryCacheEntry && memoryCacheEntry.expiresAt > now) {
+        return JSON.parse(memoryCacheEntry.value) as T;
+    }
+
+    // Cache miss - fetch and store in memory
+    const data = await fetcher();
+    
+    memoryCache.set(key, {
+        value: JSON.stringify(data),
+        expiresAt: now + (ttlSeconds * 1000)
+    });
+
+    return data;
 }
 
 /**
  * Invalidate cache keys (single or pattern-based)
  */
 export async function invalidateCache(...keys: string[]): Promise<void> {
-    const client = await getRedisClient();
-    if (!client || keys.length === 0) return;
+    if (keys.length === 0) return;
 
-    try {
-        await client.del(keys);
-    } catch (error) {
-        console.warn("Cache invalidation failed:", error);
+    // Always clear from memory cache
+    for (const key of keys) {
+        memoryCache.delete(key);
+    }
+
+    // Also clear from Redis if available
+    const client = await getRedisClient();
+    if (client) {
+        try {
+            await client.del(keys);
+        } catch (error) {
+            console.warn("Redis invalidation failed:", error);
+        }
     }
 }
 
@@ -135,12 +179,15 @@ export async function invalidateTeamCache(teamId: string, userId?: string): Prom
     const keysToInvalidate = [
         cacheKeys.expenseStats(teamId),
         cacheKeys.teamMembers(teamId),
+        cacheKeys.receiptsData(teamId),
+        cacheKeys.teamSettlements(teamId),
     ];
 
     if (userId) {
         keysToInvalidate.push(
             cacheKeys.teamBalances(teamId, userId),
             cacheKeys.dashboardData(teamId, userId),
+            cacheKeys.paymentsData(teamId, userId),
             cacheKeys.userTeams(userId)
         );
     }

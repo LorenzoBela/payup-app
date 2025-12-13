@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
 import { getUserTeams } from "@/app/actions/teams";
 import useSWR from "swr";
 import { toast } from "sonner";
@@ -28,14 +28,16 @@ export function TeamProvider({ children }: { children: React.ReactNode }) {
     const { user, isLoaded } = useUser();
     const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
 
-    // Use SWR for caching team data
+    // Use SWR for caching team data with optimized config
     const { data: teams = [], isLoading, mutate } = useSWR<Team[]>(
         isLoaded && user ? ["user-teams", user.id] : null,
         () => getUserTeams(),
         {
             revalidateOnFocus: false,
-            dedupingInterval: 10000, // Cache for 10 seconds
+            revalidateOnReconnect: false,
+            dedupingInterval: 30000,    // Cache for 30 seconds (increased from 10s)
             errorRetryCount: 2,
+            keepPreviousData: true,     // Keep showing old data while fetching
             onError: (error) => {
                 console.error("Failed to fetch teams", error);
                 toast.error("Failed to load teams");
@@ -71,8 +73,17 @@ export function TeamProvider({ children }: { children: React.ReactNode }) {
 
     const loading = !isLoaded || isLoading;
 
+    // Memoize context value to prevent unnecessary re-renders of child components
+    const contextValue = useMemo(() => ({
+        teams,
+        selectedTeam,
+        setSelectedTeam,
+        isLoading: loading,
+        refreshTeams
+    }), [teams, selectedTeam, loading, refreshTeams]);
+
     return (
-        <TeamContext.Provider value={{ teams, selectedTeam, setSelectedTeam, isLoading: loading, refreshTeams }}>
+        <TeamContext.Provider value={contextValue}>
             {children}
         </TeamContext.Provider>
     );

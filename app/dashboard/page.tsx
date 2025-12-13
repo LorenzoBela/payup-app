@@ -16,7 +16,7 @@ import { AddExpenseDialog } from "@/components/dashboard/add-expense-dialog";
 import { ExpenseList } from "@/components/dashboard/expense-list";
 import { SettlementsList } from "@/components/dashboard/settlements-list";
 import { useTeam } from "@/components/dashboard/team-provider";
-import { useTeamBalances } from "@/lib/hooks/use-dashboard-data";
+import { useDashboardData } from "@/lib/hooks/use-dashboard-data";
 
 export default function DashboardPage() {
   const { user, isLoaded } = useUser();
@@ -31,8 +31,10 @@ export default function DashboardPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // Use SWR for balances with caching
-  const { balances, isLoading: balancesLoading, mutate: mutateBalances } = useTeamBalances(selectedTeam?.id || null);
+  // Use unified dashboard data fetch (single server call for balances, expenses, settlements)
+  const { data: dashboardData, isLoading: dashboardLoading, mutate: mutateDashboard } = useDashboardData(selectedTeam?.id || null);
+  const balances = dashboardData?.balances || { youOwe: 0, owedToYou: 0, youOweCount: 0, owedToYouCount: 0 };
+  const balancesLoading = dashboardLoading;
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -54,7 +56,7 @@ export default function DashboardPage() {
 
   const handleExpenseAdded = () => {
     setRefreshKey((prev) => prev + 1);
-    mutateBalances(); // Refresh balances via SWR
+    mutateDashboard(); // Refresh all dashboard data via SWR
   };
 
   const handleCreateTeam = async () => {

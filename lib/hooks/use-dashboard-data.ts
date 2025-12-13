@@ -12,29 +12,30 @@ import { getTeamLogs } from "@/app/actions/logs";
 import { getTeamMembers } from "@/app/actions/teams";
 
 // Optimized SWR configuration for high performance
+// Key: Avoid revalidation on mount when data exists in cache
 const swrConfig: SWRConfiguration = {
     revalidateOnFocus: false,       // Don't refetch on window focus (reduce API calls)
-    revalidateOnReconnect: true,    // Refetch when network reconnects
-    dedupingInterval: 10000,        // Dedupe requests within 10 seconds (increased from 5s)
+    revalidateOnReconnect: false,   // Don't refetch on reconnect (data is usually still valid)
+    dedupingInterval: 30000,        // Dedupe requests within 30 seconds (prevents duplicate calls)
     errorRetryCount: 2,             // Retry failed requests twice
     errorRetryInterval: 3000,       // Wait 3 seconds between retries
     keepPreviousData: true,         // Keep showing old data while fetching new (prevents flash)
-    focusThrottleInterval: 30000,   // Throttle focus revalidation
-    loadingTimeout: 5000,           // Show loading after 5 seconds
+    focusThrottleInterval: 60000,   // Throttle focus revalidation to 1 minute
+    revalidateIfStale: false,       // Don't auto-revalidate stale data (manual refresh only)
 };
 
-// Fast refresh config for data that updates frequently
-const fastRefreshConfig: SWRConfiguration = {
+// Config for data that updates with user actions (balances, dashboard)
+const balanceConfig: SWRConfiguration = {
     ...swrConfig,
-    refreshInterval: 30000,         // Refresh every 30 seconds
-    revalidateIfStale: true,        // Revalidate stale data automatically
+    dedupingInterval: 15000,        // Shorter dedup for balance data
+    revalidateIfStale: true,        // Revalidate stale balance data
 };
 
-// Config for data that rarely changes
+// Config for data that rarely changes (members, GCash, etc.)
 const stableDataConfig: SWRConfiguration = {
     ...swrConfig,
-    dedupingInterval: 60000,        // Dedupe for 60 seconds
-    refreshInterval: 120000,        // Refresh every 2 minutes
+    dedupingInterval: 120000,       // Dedupe for 2 minutes
+    revalidateIfStale: false,       // Don't auto-revalidate
 };
 
 // Type definitions
@@ -107,7 +108,7 @@ export function useDashboardData(teamId: string | null) {
     const { data, error, isLoading, mutate } = useSWR(
         teamId ? ["dashboard", teamId] : null,
         () => getDashboardData(teamId!),
-        fastRefreshConfig
+        balanceConfig
     );
 
     return {
@@ -126,7 +127,7 @@ export function useTeamBalances(teamId: string | null) {
             const result = await getTeamBalances(teamId!);
             return result;
         },
-        fastRefreshConfig
+        balanceConfig
     );
 
     return {
@@ -158,10 +159,11 @@ export function useTeamExpenses(teamId: string | null, pageSize = 20) {
         },
         {
             ...swrConfig,
-            revalidateFirstPage: true,
-            parallel: false,              // Load pages sequentially
-            persistSize: true,            // Persist page size across revalidations
-            revalidateOnMount: true,      // Ensure fresh data on mount
+            revalidateFirstPage: false,    // Don't re-fetch first page on navigation
+            parallel: false,               // Load pages sequentially
+            persistSize: true,             // Persist page size across revalidations
+            revalidateOnMount: true,       // Fetch on mount if cache empty
+            dedupingInterval: 30000,       // Dedupe calls within 30 seconds
         }
     );
 
@@ -180,7 +182,7 @@ export function useTeamExpenses(teamId: string | null, pageSize = 20) {
     };
 }
 
-// Infinite scroll hook for settlements
+// Infinite scroll hook for settlements  
 export function useTeamSettlements(teamId: string | null, pageSize = 15) {
     const getKey = (pageIndex: number, previousPageData: { settlements: Settlement[]; nextCursor: string | null } | null) => {
         if (!teamId) return null;
@@ -201,10 +203,11 @@ export function useTeamSettlements(teamId: string | null, pageSize = 15) {
         },
         {
             ...swrConfig,
-            revalidateFirstPage: true,
+            revalidateFirstPage: false,    // Don't re-fetch first page on navigation
             parallel: false,
             persistSize: true,
-            revalidateOnMount: true,
+            revalidateOnMount: true,       // Fetch on mount if cache empty
+            dedupingInterval: 30000,       // Dedupe calls within 30 seconds
         }
     );
 
@@ -243,10 +246,11 @@ export function useTeamLogs(teamId: string | null, pageSize = 30) {
         },
         {
             ...swrConfig,
-            revalidateFirstPage: true,
+            revalidateFirstPage: false,    // Don't re-fetch first page on navigation
             parallel: false,
             persistSize: true,
-            revalidateOnMount: true,
+            revalidateOnMount: true,       // Fetch on mount if cache empty
+            dedupingInterval: 30000,       // Dedupe calls within 30 seconds
         }
     );
 

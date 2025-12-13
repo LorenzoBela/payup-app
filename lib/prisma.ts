@@ -23,8 +23,8 @@ if (process.env.NODE_ENV !== "production") {
     globalForPrisma.prisma = prisma;
 }
 
-// Graceful shutdown handling
-if (typeof window === "undefined") {
+// Graceful shutdown handling (only register once)
+if (typeof window === "undefined" && !globalForPrisma.prisma) {
     process.on("beforeExit", async () => {
         await prisma.$disconnect();
     });

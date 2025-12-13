@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { currentUser } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { TeamRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { sendTeamInvite } from "@/lib/emails";
@@ -237,13 +237,13 @@ export async function joinTeam(code: string) {
 // Optimized: Single query with proper includes
 export async function getUserTeams() {
     try {
-        const user = await currentUser();
-        if (!user) {
+        const { userId } = await auth();
+        if (!userId) {
             return [];
         }
 
         const members = await prisma.teamMember.findMany({
-            where: { user_id: user.id },
+            where: { user_id: userId },
             select: {
                 role: true,
                 team: {
@@ -277,8 +277,8 @@ export async function getUserTeams() {
 // Optimized: Combined membership check with data fetch
 export async function getTeamMembers(teamId: string) {
     try {
-        const user = await currentUser();
-        if (!user) return [];
+        const { userId } = await auth();
+        if (!userId) return [];
 
         // Single query that also verifies membership
         const members = await prisma.teamMember.findMany({
@@ -299,7 +299,7 @@ export async function getTeamMembers(teamId: string) {
         });
 
         // Check if current user is a member
-        const isMember = members.some(m => m.user_id === user.id);
+        const isMember = members.some(m => m.user_id === userId);
         if (!isMember) return [];
 
         return members.map(m => ({
@@ -317,14 +317,14 @@ export async function getTeamMembers(teamId: string) {
 
 export async function renameTeam(teamId: string, newName: string) {
     try {
-        const user = await currentUser();
-        if (!user) return { error: "Not authenticated" };
+        const { userId } = await auth();
+        if (!userId) return { error: "Not authenticated" };
 
         const member = await prisma.teamMember.findUnique({
             where: {
                 team_id_user_id: {
                     team_id: teamId,
-                    user_id: user.id,
+                    user_id: userId,
                 },
             },
         });
@@ -348,15 +348,15 @@ export async function renameTeam(teamId: string, newName: string) {
 
 export async function removeTeamMember(teamId: string, memberId: string) {
     try {
-        const user = await currentUser();
-        if (!user) return { error: "Not authenticated" };
+        const { userId } = await auth();
+        if (!userId) return { error: "Not authenticated" };
 
         // Check if requester is admin
         const requester = await prisma.teamMember.findUnique({
             where: {
                 team_id_user_id: {
                     team_id: teamId,
-                    user_id: user.id,
+                    user_id: userId,
                 },
             },
         });
@@ -366,7 +366,7 @@ export async function removeTeamMember(teamId: string, memberId: string) {
         }
 
         // Prevent removing yourself
-        if (memberId === user.id) {
+        if (memberId === userId) {
             return { error: "Cannot remove yourself from the team" };
         }
 
@@ -463,7 +463,7 @@ export async function removeTeamMember(teamId: string, memberId: string) {
             await tx.activityLog.create({
                 data: {
                     team_id: teamId,
-                    user_id: user.id,
+                    user_id: userId,
                     action: "REMOVED_MEMBER",
                     details: `Removed member from team. Recalculated ${pendingExpenses.length} pending expense(s).`,
                 },
@@ -471,7 +471,7 @@ export async function removeTeamMember(teamId: string, memberId: string) {
         });
 
         // Invalidate cache for all team members
-        await invalidateTeamCache(teamId, user.id);
+        await invalidateTeamCache(teamId, userId);
 
         revalidatePath("/dashboard");
         return { success: true };
@@ -483,15 +483,15 @@ export async function removeTeamMember(teamId: string, memberId: string) {
 
 export async function leaveTeam(teamId: string) {
     try {
-        const user = await currentUser();
-        if (!user) return { error: "Not authenticated" };
+        const { userId } = await auth();
+        if (!userId) return { error: "Not authenticated" };
 
         // Find user's membership in this team
         const membership = await prisma.teamMember.findUnique({
             where: {
                 team_id_user_id: {
                     team_id: teamId,
-                    user_id: user.id,
+                    user_id: userId,
                 },
             },
         });
@@ -519,7 +519,7 @@ export async function leaveTeam(teamId: string) {
             where: {
                 team_id_user_id: {
                     team_id: teamId,
-                    user_id: user.id,
+                    user_id: userId,
                 },
             },
         });
@@ -534,8 +534,8 @@ export async function leaveTeam(teamId: string) {
 
 export async function inviteMemberByEmail(teamId: string, email: string) {
     try {
-        const user = await currentUser();
-        if (!user) return { error: "Not authenticated" };
+        const { userId } = await auth();
+        if (!userId) return { error: "Not authenticated" };
 
         const team = await prisma.team.findUnique({
             where: { id: teamId },
@@ -544,13 +544,16 @@ export async function inviteMemberByEmail(teamId: string, email: string) {
 
         if (!team) return { error: "Team not found" };
 
-        // Verify sender is a member
+        // Verify sender is a member and get their name
         const membership = await prisma.teamMember.findUnique({
             where: {
                 team_id_user_id: {
                     team_id: teamId,
-                    user_id: user.id
+                    user_id: userId
                 }
+            },
+            include: {
+                user: { select: { name: true } }
             }
         });
 
@@ -558,7 +561,7 @@ export async function inviteMemberByEmail(teamId: string, email: string) {
 
         // Send the invite
         const result = await sendTeamInvite(email, {
-            inviterName: user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : "A friend",
+            inviterName: membership.user.name || "A friend",
             teamName: team.name,
             teamCode: team.code
         });
@@ -577,15 +580,15 @@ export async function inviteMemberByEmail(teamId: string, email: string) {
 
 export async function recalculateTeamExpenses(teamId: string) {
     try {
-        const user = await currentUser();
-        if (!user) return { error: "Not authenticated" };
+        const { userId } = await auth();
+        if (!userId) return { error: "Not authenticated" };
 
         // Verify user is an admin of this team
         const membership = await prisma.teamMember.findUnique({
             where: {
                 team_id_user_id: {
                     team_id: teamId,
-                    user_id: user.id,
+                    user_id: userId,
                 },
             },
         });
@@ -693,7 +696,7 @@ export async function recalculateTeamExpenses(teamId: string) {
             await tx.activityLog.create({
                 data: {
                     team_id: teamId,
-                    user_id: user.id,
+                    user_id: userId,
                     action: "RECALCULATED_EXPENSES",
                     details: `Recalculated ${pendingExpenses.length} expense(s). Removed ${settlementsRemoved} orphaned settlement(s), updated ${settlementsUpdated}, created ${settlementsCreated} new settlement(s).`,
                 },

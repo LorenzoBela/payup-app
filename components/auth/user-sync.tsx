@@ -1,34 +1,22 @@
 "use client";
 
 import { useUser } from "@clerk/nextjs";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { syncUserToSupabase } from "@/app/actions/auth";
-import { getUserTeams } from "@/app/actions/teams";
-import { prefetchDashboardData } from "@/lib/hooks/use-dashboard-data";
 
 export function UserSync() {
     const { user, isLoaded } = useUser();
+    const hasSynced = useRef(false);
 
     useEffect(() => {
-        if (isLoaded && user) {
-            // Sync user to database
+        // Only sync once per session to avoid duplicate calls
+        if (isLoaded && user && !hasSynced.current) {
+            hasSynced.current = true;
+            // Sync user to database - this is the only essential operation
+            // Teams are already fetched by TeamProvider, dashboard data by pages
             syncUserToSupabase().catch((err) =>
                 console.error("Failed to sync user:", err)
             );
-            
-            // Prefetch user's teams and dashboard data in background
-            (async () => {
-                try {
-                    const teams = await getUserTeams();
-                    if (teams && teams.length > 0) {
-                        // Prefetch dashboard data for the first (selected) team
-                        await prefetchDashboardData(teams[0].id);
-                    }
-                } catch (err) {
-                    // Silent fail - prefetch is just an optimization
-                    console.warn("Prefetch failed:", err);
-                }
-            })();
         }
     }, [user, isLoaded]);
 

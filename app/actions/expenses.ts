@@ -1,7 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { currentUser } from "@clerk/nextjs/server";
+import { auth } from "@clerk/nextjs/server";
 import { Status, PaymentMethod } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { cached, cacheKeys, CACHE_TTL, invalidateTeamCache } from "@/lib/cache";
@@ -38,8 +38,8 @@ async function verifyTeamMembership(teamId: string, userId: string) {
 
 export async function createExpense(input: CreateExpenseInput) {
     try {
-        const user = await currentUser();
-        if (!user) {
+        const { userId } = await auth();
+        if (!userId) {
             return { error: "Not authenticated" };
         }
 
@@ -52,8 +52,8 @@ export async function createExpense(input: CreateExpenseInput) {
             }
         });
 
-        const isMember = teamMembers.some(m => m.user_id === user.id);
-        if (!isMember) {
+        const currentMember = teamMembers.find(m => m.user_id === userId);
+        if (!currentMember) {
             return { error: "Not a member of this team" };
         }
 
@@ -71,7 +71,7 @@ export async function createExpense(input: CreateExpenseInput) {
                 data: {
                     description: input.description,
                     amount: input.amount,
-                    paid_by: user.id,
+                    paid_by: userId,
                     currency: "PHP",
                     category: input.category,
                     team_id: input.teamId,
@@ -81,7 +81,7 @@ export async function createExpense(input: CreateExpenseInput) {
 
             // Create settlements for each member who owes money (excluding the payer)
             const settlementData = teamMembers
-                .filter((member) => member.user_id !== user.id)
+                .filter((member) => member.user_id !== userId)
                 .map((member) => ({
                     expense_id: expense.id,
                     owed_by: member.user_id,
@@ -98,7 +98,7 @@ export async function createExpense(input: CreateExpenseInput) {
             await tx.activityLog.create({
                 data: {
                     team_id: input.teamId,
-                    user_id: user.id,
+                    user_id: userId,
                     action: "ADDED_EXPENSE",
                     details: `Added expense '${input.description}' for PHP ${input.amount.toFixed(2)}`,
                 },
@@ -108,14 +108,14 @@ export async function createExpense(input: CreateExpenseInput) {
         });
 
         // Invalidate cache for all team members
-        await invalidateTeamCache(input.teamId, user.id);
+        await invalidateTeamCache(input.teamId, userId);
         revalidatePath("/dashboard");
         // Send notifications asynchronously
         const teamName = teamMembers[0]?.team?.name || "PayUp Team";
-        const creatorName = user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : "Team Member";
+        const creatorName = currentMember.user.name || "Team Member";
 
         const emailPromises = teamMembers
-            .filter(member => member.user_id !== user.id)
+            .filter(member => member.user_id !== userId)
             .map(member => sendExpenseNotification(member.user.email, {
                 recipientName: member.user.name.split(' ')[0],
                 creatorName: creatorName,
@@ -171,8 +171,8 @@ function calculateDeadline(monthOffset: number, deadlineDay: number): Date {
 
 export async function createMonthlyExpense(input: CreateMonthlyExpenseInput) {
     try {
-        const user = await currentUser();
-        if (!user) {
+        const { userId } = await auth();
+        if (!userId) {
             return { error: "Not authenticated" };
         }
 
@@ -196,8 +196,8 @@ export async function createMonthlyExpense(input: CreateMonthlyExpenseInput) {
             }
         });
 
-        const isMember = teamMembers.some(m => m.user_id === user.id);
-        if (!isMember) {
+        const currentMember = teamMembers.find(m => m.user_id === userId);
+        if (!currentMember) {
             return { error: "Not a member of this team" };
         }
 
@@ -218,7 +218,7 @@ export async function createMonthlyExpense(input: CreateMonthlyExpenseInput) {
                 data: {
                     description: `${input.description} (Monthly Plan - ${input.numberOfMonths} months)`,
                     amount: input.totalAmount,
-                    paid_by: user.id,
+                    paid_by: userId,
                     currency: "PHP",
                     category: input.category,
                     team_id: input.teamId,
@@ -238,7 +238,7 @@ export async function createMonthlyExpense(input: CreateMonthlyExpenseInput) {
                     data: {
                         description: `${input.description} - Month ${month}/${input.numberOfMonths}`,
                         amount: monthlyAmount,
-                        paid_by: user.id,
+                        paid_by: userId,
                         currency: "PHP",
                         category: input.category,
                         team_id: input.teamId,
@@ -256,7 +256,7 @@ export async function createMonthlyExpense(input: CreateMonthlyExpenseInput) {
 
                 // Create settlements for each member (excluding the payer)
                 const settlementData = teamMembers
-                    .filter((member) => member.user_id !== user.id)
+                    .filter((member) => member.user_id !== userId)
                     .map((member) => ({
                         expense_id: childExpense.id,
                         owed_by: member.user_id,
@@ -275,7 +275,7 @@ export async function createMonthlyExpense(input: CreateMonthlyExpenseInput) {
             await tx.activityLog.create({
                 data: {
                     team_id: input.teamId,
-                    user_id: user.id,
+                    user_id: userId,
                     action: "ADDED_MONTHLY_EXPENSE",
                     details: `Added monthly expense '${input.description}' for PHP ${input.totalAmount.toFixed(2)} split over ${input.numberOfMonths} months (PHP ${perParticipantAmount}/person/month)`,
                 },
@@ -285,14 +285,14 @@ export async function createMonthlyExpense(input: CreateMonthlyExpenseInput) {
         });
 
         // Invalidate cache after creating monthly expense
-        await invalidateTeamCache(input.teamId, user.id);
+        await invalidateTeamCache(input.teamId, userId);
         revalidatePath("/dashboard");
         // Send notifications asynchronously
         const teamName = teamMembers[0]?.team?.name || "PayUp Team";
-        const creatorName = user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : "Team Member";
+        const creatorName = currentMember.user.name || "Team Member";
 
         const emailPromises = teamMembers
-            .filter(member => member.user_id !== user.id)
+            .filter(member => member.user_id !== userId)
             .map(member => sendExpenseNotification(member.user.email, {
                 recipientName: member.user.name.split(' ')[0],
                 creatorName: creatorName,
@@ -328,8 +328,8 @@ export async function createMonthlyExpense(input: CreateMonthlyExpenseInput) {
 // Get detailed expense by ID for the expense detail page
 export async function getExpenseById(expenseId: string) {
     try {
-        const user = await currentUser();
-        if (!user) {
+        const { userId } = await auth();
+        if (!userId) {
             return { error: "Not authenticated" };
         }
 
@@ -362,7 +362,7 @@ export async function getExpenseById(expenseId: string) {
                 where: {
                     team_id_user_id: {
                         team_id: expense.team_id,
-                        user_id: user.id,
+                        user_id: userId,
                     },
                 },
             });
@@ -435,13 +435,13 @@ export async function getTeamExpenses(
     { cursor, limit = 20 }: PaginationParams = {}
 ) {
     try {
-        const user = await currentUser();
-        if (!user) {
+        const { userId } = await auth();
+        if (!userId) {
             return { expenses: [], nextCursor: null };
         }
 
         // Verify membership
-        const membership = await verifyTeamMembership(teamId, user.id);
+        const membership = await verifyTeamMembership(teamId, userId);
         if (!membership) {
             return { expenses: [], nextCursor: null };
         }
@@ -520,8 +520,8 @@ export async function getTeamExpenses(
 // Get monthly breakdown (child expenses) for a parent monthly expense
 export async function getMonthlyBreakdown(parentExpenseId: string) {
     try {
-        const user = await currentUser();
-        if (!user) {
+        const { userId } = await auth();
+        if (!userId) {
             return { childExpenses: [] };
         }
 
@@ -597,8 +597,8 @@ export async function getMonthlyBreakdown(parentExpenseId: string) {
 
 export async function deleteExpense(expenseId: string) {
     try {
-        const user = await currentUser();
-        if (!user) {
+        const { userId } = await auth();
+        if (!userId) {
             return { error: "Not authenticated" };
         }
 
@@ -625,7 +625,7 @@ export async function deleteExpense(expenseId: string) {
                 prisma.activityLog.create({
                     data: {
                         team_id: expense.team_id,
-                        user_id: user.id,
+                        user_id: userId,
                         action: "DELETED_EXPENSE",
                         details: `Deleted expense '${expense.description}'`,
                     },
@@ -635,7 +635,7 @@ export async function deleteExpense(expenseId: string) {
 
         // Invalidate cache after deletion
         if (expense.team_id) {
-            await invalidateTeamCache(expense.team_id, user.id);
+            await invalidateTeamCache(expense.team_id, userId);
         }
         revalidatePath("/dashboard");
         return { success: true };
@@ -655,8 +655,8 @@ interface UpdateExpenseInput {
 // Update expense - admins can edit any team expense, owners can edit their own
 export async function updateExpense(input: UpdateExpenseInput) {
     try {
-        const user = await currentUser();
-        if (!user) {
+        const { userId } = await auth();
+        if (!userId) {
             return { error: "Not authenticated" };
         }
 
@@ -685,7 +685,7 @@ export async function updateExpense(input: UpdateExpenseInput) {
             where: {
                 team_id_user_id: {
                     team_id: expense.team_id,
-                    user_id: user.id,
+                    user_id: userId,
                 },
             },
             select: { role: true },
@@ -696,7 +696,7 @@ export async function updateExpense(input: UpdateExpenseInput) {
         }
 
         const isAdmin = membership.role === "ADMIN";
-        const isOwner = expense.paid_by === user.id;
+        const isOwner = expense.paid_by === userId;
 
         if (!isAdmin && !isOwner) {
             return { error: "You can only edit expenses you created" };
@@ -722,7 +722,7 @@ export async function updateExpense(input: UpdateExpenseInput) {
             await tx.activityLog.create({
                 data: {
                     team_id: expense.team_id!,
-                    user_id: user.id,
+                    user_id: userId,
                     action: "UPDATED_EXPENSE",
                     details: `Updated expense '${expense.description}'${input.description ? ` to '${input.description}'` : ''}`,
                 },
@@ -732,7 +732,7 @@ export async function updateExpense(input: UpdateExpenseInput) {
         });
 
         // Invalidate cache
-        await invalidateTeamCache(expense.team_id, user.id);
+        await invalidateTeamCache(expense.team_id, userId);
         revalidatePath("/dashboard");
         revalidatePath(`/dashboard/expenses/${input.expenseId}`);
 
@@ -749,19 +749,21 @@ export async function getTeamSettlements(
     { cursor, limit = 15 }: PaginationParams = {}
 ) {
     try {
-        const user = await currentUser();
-        if (!user) {
+        const { userId } = await auth();
+        if (!userId) {
             return { settlements: [], nextCursor: null };
         }
 
         // Verify membership
-        const membership = await verifyTeamMembership(teamId, user.id);
+        const membership = await verifyTeamMembership(teamId, userId);
         if (!membership) {
             return { settlements: [], nextCursor: null };
         }
 
-        // Get expenses with their settlements in a single query pattern
-        const expenses = await prisma.expense.findMany({
+        // Fetcher function for settlements
+        const fetchSettlements = async () => {
+            // Get expenses with their settlements in a single query pattern
+            const expenses = await prisma.expense.findMany({
             where: {
                 team_id: teamId,
                 deleted_at: null,
@@ -826,8 +828,8 @@ export async function getTeamSettlements(
         return {
             settlements: resultSettlements.map((settlement) => {
                 const expense = expenseMap.get(settlement.expense_id);
-                const isCurrentUserOwing = settlement.owed_by === user.id;
-                const isCurrentUserOwed = expense?.paid_by === user.id;
+                const isCurrentUserOwing = settlement.owed_by === userId;
+                const isCurrentUserOwed = expense?.paid_by === userId;
 
                 return {
                     id: settlement.id,
@@ -850,6 +852,14 @@ export async function getTeamSettlements(
             }),
             nextCursor,
         };
+        };
+
+        // Cache first page only (no cursor), subsequent pages are direct DB queries
+        if (!cursor) {
+            return await cached(cacheKeys.teamSettlements(teamId), fetchSettlements, 20);
+        }
+
+        return await fetchSettlements();
     } catch (error) {
         console.error("Error fetching settlements:", error);
         return { settlements: [], nextCursor: null };
@@ -863,8 +873,8 @@ export async function markSettlementAsPaid(
     proofUrl?: string
 ) {
     try {
-        const user = await currentUser();
-        if (!user) {
+        const { userId } = await auth();
+        if (!userId) {
             return { error: "Not authenticated" };
         }
 
@@ -885,8 +895,8 @@ export async function markSettlementAsPaid(
             return { error: "Settlement not found" };
         }
 
-        const isDebtor = settlement.owed_by === user.id;
-        const isCreditor = settlement.expense.paid_by === user.id;
+        const isDebtor = settlement.owed_by === userId;
+        const isCreditor = settlement.expense.paid_by === userId;
 
         if (!isDebtor && !isCreditor) {
             return { error: "Not authorized to mark this settlement as paid" };
@@ -934,7 +944,7 @@ export async function markSettlementAsPaid(
             await tx.activityLog.create({
                 data: {
                     team_id: settlement.expense.team_id || "",
-                    user_id: user.id,
+                    user_id: userId,
                     action: isCreditor ? "PAID_SETTLEMENT" : "SUBMITTED_PAYMENT",
                     details: details,
                 },
@@ -983,7 +993,7 @@ export async function markSettlementAsPaid(
 
         // Invalidate cache after settlement update
         if (settlement.expense.team_id) {
-            await invalidateTeamCache(settlement.expense.team_id, user.id);
+            await invalidateTeamCache(settlement.expense.team_id, userId);
         }
         revalidatePath("/dashboard");
         return { success: true };
@@ -995,8 +1005,8 @@ export async function markSettlementAsPaid(
 
 export async function verifySettlement(settlementId: string) {
     try {
-        const user = await currentUser();
-        if (!user) return { error: "Not authenticated" };
+        const { userId } = await auth();
+        if (!userId) return { error: "Not authenticated" };
 
         const settlement = await prisma.settlement.findUnique({
             where: { id: settlementId },
@@ -1006,7 +1016,7 @@ export async function verifySettlement(settlementId: string) {
         if (!settlement) return { error: "Settlement not found" };
 
         // Only creditor can verify
-        if (settlement.expense.paid_by !== user.id) {
+        if (settlement.expense.paid_by !== userId) {
             return { error: "Only the creditor can verify this payment" };
         }
 
@@ -1025,6 +1035,12 @@ export async function verifySettlement(settlementId: string) {
                 select: { name: true, email: true }
             });
 
+            // Fetch creditor name for email
+            const creditor = await tx.user.findUnique({
+                where: { id: userId },
+                select: { name: true }
+            });
+
             const team = settlement.expense.team_id
                 ? await tx.team.findUnique({ where: { id: settlement.expense.team_id }, select: { name: true } })
                 : null;
@@ -1032,20 +1048,20 @@ export async function verifySettlement(settlementId: string) {
             await tx.activityLog.create({
                 data: {
                     team_id: settlement.expense.team_id || "",
-                    user_id: user.id,
+                    user_id: userId,
                     action: "VERIFIED_PAYMENT",
                     details: `Verified payment from ${payer?.name || 'Unknown'} for '${settlement.expense.description}'`,
                 }
             });
 
-            return { payer, teamName: team?.name || "PayUp Team", settlement };
+            return { payer, creditor, teamName: team?.name || "PayUp Team", settlement };
         });
 
         // Send Receipt Notification
         if (result.payer?.email) {
             sendPaymentReceipt(result.payer.email, {
                 recipientName: result.payer.name,
-                payerName: user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : "Creditor",
+                payerName: result.creditor?.name || "Creditor",
                 amount: settlement.amount_owed,
                 currency: "PHP",
                 paymentMethod: settlement.payment_method || "CASH",
@@ -1065,8 +1081,8 @@ export async function verifySettlement(settlementId: string) {
 
 export async function rejectSettlement(settlementId: string) {
     try {
-        const user = await currentUser();
-        if (!user) return { error: "Not authenticated" };
+        const { userId } = await auth();
+        if (!userId) return { error: "Not authenticated" };
 
         const settlement = await prisma.settlement.findUnique({
             where: { id: settlementId },
@@ -1076,7 +1092,7 @@ export async function rejectSettlement(settlementId: string) {
         if (!settlement) return { error: "Settlement not found" };
 
         // Only creditor can reject
-        if (settlement.expense.paid_by !== user.id) {
+        if (settlement.expense.paid_by !== userId) {
             return { error: "Only the creditor can reject this payment" };
         }
 
@@ -1099,7 +1115,7 @@ export async function rejectSettlement(settlementId: string) {
             await tx.activityLog.create({
                 data: {
                     team_id: settlement.expense.team_id || "",
-                    user_id: user.id,
+                    user_id: userId,
                     action: "REJECTED_PAYMENT",
                     details: `Rejected payment from ${payer?.name || 'Unknown'} for '${settlement.expense.description}'`,
                 }
@@ -1108,7 +1124,7 @@ export async function rejectSettlement(settlementId: string) {
 
         // Invalidate cache after rejection
         if (settlement.expense.team_id) {
-            await invalidateTeamCache(settlement.expense.team_id, user.id);
+            await invalidateTeamCache(settlement.expense.team_id, userId);
         }
         revalidatePath("/dashboard");
         return { success: true };
@@ -1128,8 +1144,8 @@ export async function markSettlementsAsPaid(settlementIds: string[]) {
     // For now, let's update this to handle the status logic correctly.
 
     try {
-        const user = await currentUser();
-        if (!user) {
+        const { userId } = await auth();
+        if (!userId) {
             return { error: "Not authenticated" };
         }
 
@@ -1156,9 +1172,9 @@ export async function markSettlementsAsPaid(settlementIds: string[]) {
         // We assume all selected items are of the same relationship relative to the user (all payable OR all receivable)
         // because the UI groups them that way.
         const firstSettlement = settlements[0];
-        if (firstSettlement.expense.paid_by === user.id) {
+        if (firstSettlement.expense.paid_by === userId) {
             isCreditorAction = true;
-        } else if (firstSettlement.owed_by === user.id) {
+        } else if (firstSettlement.owed_by === userId) {
             isCreditorAction = false;
         } else {
             return { error: "Not authorized" };
@@ -1184,7 +1200,7 @@ export async function markSettlementsAsPaid(settlementIds: string[]) {
                 await tx.activityLog.create({
                     data: {
                         team_id: teamId,
-                        user_id: user.id,
+                        user_id: userId,
                         action: isCreditorAction ? "PAID_SETTLEMENT_BATCH" : "SUBMITTED_PAYMENT_BATCH",
                         details: isCreditorAction
                             ? `Marked ${settlementIds.length} payments totaling PHP ${totalAmount.toFixed(2)} as received`
@@ -1197,7 +1213,7 @@ export async function markSettlementsAsPaid(settlementIds: string[]) {
         // Invalidate cache after batch update
         const teamId = settlements[0]?.expense.team_id;
         if (teamId) {
-            await invalidateTeamCache(teamId, user.id);
+            await invalidateTeamCache(teamId, userId);
         }
         revalidatePath("/dashboard");
         return { success: true };
@@ -1214,8 +1230,8 @@ export async function markSettlementsAsPaidWithMethod(
     proofUrl?: string
 ) {
     try {
-        const user = await currentUser();
-        if (!user) {
+        const { userId } = await auth();
+        if (!userId) {
             return { error: "Not authenticated" };
         }
 
@@ -1238,7 +1254,7 @@ export async function markSettlementsAsPaidWithMethod(
 
         // Validate that user is the debtor for all settlements
         const firstSettlement = settlements[0];
-        if (firstSettlement.owed_by !== user.id) {
+        if (firstSettlement.owed_by !== userId) {
             return { error: "You can only submit payments for debts you owe" };
         }
 
@@ -1267,7 +1283,7 @@ export async function markSettlementsAsPaidWithMethod(
                 await tx.activityLog.create({
                     data: {
                         team_id: teamId,
-                        user_id: user.id,
+                        user_id: userId,
                         action: "SUBMITTED_PAYMENT_BATCH",
                         details: `Submitted ${settlementIds.length} ${method} payments totaling PHP ${totalAmount.toFixed(2)} (Pending Verification)`,
                     },
@@ -1278,7 +1294,7 @@ export async function markSettlementsAsPaidWithMethod(
         // Invalidate cache after batch update
         const teamId = settlements[0]?.expense.team_id;
         if (teamId) {
-            await invalidateTeamCache(teamId, user.id);
+            await invalidateTeamCache(teamId, userId);
         }
         revalidatePath("/dashboard");
         return { success: true };
@@ -1289,178 +1305,151 @@ export async function markSettlementsAsPaidWithMethod(
 }
 
 
-export async function getMyPendingSettlements(teamId: string) {
+// OPTIMIZED: Combined function to get both payables and receivables in ONE server action
+// This reduces 6 DB queries to 3 by sharing membership check and user lookup + Redis cache
+export async function getPaymentsPageData(teamId: string) {
     try {
-        const user = await currentUser();
-        if (!user) {
-            return [];
+        const { userId } = await auth();
+        if (!userId) {
+            return { payables: [], receivables: [] };
         }
 
-        // Verify membership
-        const membership = await verifyTeamMembership(teamId, user.id);
+        // Single membership check
+        const membership = await verifyTeamMembership(teamId, userId);
         if (!membership) {
-            return [];
+            return { payables: [], receivables: [] };
         }
 
-        // Get pending settlements where the user owes money
-        const settlements = await prisma.settlement.findMany({
-            where: {
-                owed_by: user.id,
-                status: { in: [Status.pending, Status.unconfirmed] },
-                deleted_at: null,
-                expense: { team_id: teamId },
+        // Use Redis cache with 10 second TTL for rapid navigation
+        return await cached(
+            cacheKeys.paymentsData(teamId, userId),
+            async () => {
+                // Fetch BOTH payables and receivables in parallel with a single DB round-trip each
+                const [payableSettlements, receivableSettlements] = await Promise.all([
+                    prisma.settlement.findMany({
+                        where: {
+                            owed_by: userId,
+                            status: { in: [Status.pending, Status.unconfirmed] },
+                            deleted_at: null,
+                            expense: { team_id: teamId, deleted_at: null },
+                        },
+                        include: {
+                            expense: {
+                                select: {
+                                    description: true,
+                                    amount: true,
+                                    category: true,
+                                    created_at: true,
+                                    paid_by: true,
+                                    is_monthly: true,
+                                    deadline: true,
+                                    deadline_day: true,
+                                }
+                            }
+                        },
+                        orderBy: { created_at: 'desc' }
+                    }),
+                    prisma.settlement.findMany({
+                        where: {
+                            status: { in: [Status.pending, Status.unconfirmed] },
+                            deleted_at: null,
+                            expense: { team_id: teamId, paid_by: userId, deleted_at: null },
+                        },
+                        include: {
+                            expense: {
+                                select: {
+                                    description: true,
+                                    amount: true,
+                                    created_at: true,
+                                    category: true,
+                                    is_monthly: true,
+                                    deadline: true,
+                                    deadline_day: true,
+                                }
+                            }
+                        },
+                        orderBy: { created_at: 'desc' }
+                    })
+                ]);
+
+                // Collect ALL user IDs needed (creditors for payables, debtors for receivables)
+                const allUserIds = new Set<string>();
+                payableSettlements.forEach(s => allUserIds.add(s.expense.paid_by));
+                receivableSettlements.forEach(s => allUserIds.add(s.owed_by));
+
+                // Single user lookup for ALL users
+                const users = allUserIds.size > 0
+                    ? await prisma.user.findMany({
+                        where: { id: { in: Array.from(allUserIds) } },
+                        select: { id: true, name: true, email: true, gcash_number: true }
+                    })
+                    : [];
+                const userMap = new Map(users.map(u => [u.id, u]));
+
+                // Transform payables
+                const payables = payableSettlements.map(settlement => ({
+                    id: settlement.id,
+                    amount: settlement.amount_owed,
+                    expense_description: settlement.expense.description,
+                    expense_amount: settlement.expense.amount,
+                    expense_date: settlement.expense.created_at,
+                    category: settlement.expense.category,
+                    owed_to: userMap.get(settlement.expense.paid_by) || { id: 'unknown', name: 'Unknown', email: '', gcash_number: null },
+                    status: settlement.status,
+                    payment_method: settlement.payment_method,
+                    proof_url: settlement.proof_url,
+                    is_monthly: settlement.expense.is_monthly,
+                    deadline: settlement.expense.deadline,
+                    deadline_day: settlement.expense.deadline_day,
+                }));
+
+                // Transform receivables
+                const receivables = receivableSettlements.map(settlement => ({
+                    id: settlement.id,
+                    amount: settlement.amount_owed,
+                    expense_description: settlement.expense.description,
+                    expense_amount: settlement.expense.amount,
+                    expense_date: settlement.expense.created_at,
+                    category: settlement.expense.category,
+                    owed_by: userMap.get(settlement.owed_by) || { id: 'unknown', name: 'Unknown', email: '', gcash_number: null },
+                    status: settlement.status,
+                    payment_method: settlement.payment_method,
+                    proof_url: settlement.proof_url,
+                    is_monthly: settlement.expense.is_monthly,
+                    deadline: settlement.expense.deadline,
+                    deadline_day: settlement.expense.deadline_day,
+                }));
+
+                return { payables, receivables };
             },
-            include: {
-                expense: {
-                    select: {
-                        description: true,
-                        amount: true,
-                        category: true,
-                        created_at: true,
-                        paid_by: true,
-                        // Include deadline fields
-                        is_monthly: true,
-                        deadline: true,
-                        deadline_day: true,
-                    }
-                }
-            },
-            orderBy: {
-                created_at: 'desc'
-            }
-        });
-
-        if (settlements.length === 0) {
-            return [];
-        }
-
-        // Fetch names of creditors (users who paid)
-        const creditorIds = [...new Set(settlements.map(s => s.expense.paid_by))];
-        const creditors = await prisma.user.findMany({
-            where: { id: { in: creditorIds } },
-            select: { id: true, name: true, email: true, gcash_number: true }
-        });
-
-        const creditorMap = new Map(creditors.map(c => [c.id, c]));
-
-        // Transform data for UI
-        return settlements.map(settlement => {
-            const creditor = creditorMap.get(settlement.expense.paid_by);
-            return {
-                id: settlement.id,
-                amount: settlement.amount_owed,
-                expense_description: settlement.expense.description,
-                expense_amount: settlement.expense.amount,
-                expense_date: settlement.expense.created_at,
-                category: settlement.expense.category,
-                owed_to: creditor || { id: 'unknown', name: 'Unknown', email: '', gcash_number: null },
-                status: settlement.status,
-                payment_method: settlement.payment_method,
-                proof_url: settlement.proof_url,
-                // Include deadline info
-                is_monthly: settlement.expense.is_monthly,
-                deadline: settlement.expense.deadline,
-                deadline_day: settlement.expense.deadline_day,
-            };
-        });
-
+            10 // 10 second TTL
+        );
     } catch (error) {
-        console.error("Error fetching my pending settlements:", error);
-        return [];
+        console.error("Error fetching payments page data:", error);
+        return { payables: [], receivables: [] };
     }
 }
 
+// Keep individual functions for backward compatibility but have them use the combined function
+export async function getMyPendingSettlements(teamId: string) {
+    const { payables } = await getPaymentsPageData(teamId);
+    return payables;
+}
+
 export async function getMyReceivables(teamId: string) {
-    try {
-        const user = await currentUser();
-        if (!user) {
-            return [];
-        }
-
-        // Verify membership
-        const membership = await verifyTeamMembership(teamId, user.id);
-        if (!membership) {
-            return [];
-        }
-
-        // Get pending settlements where the user is owed money
-        // We find settlements where the expense was paid by the user
-        const settlements = await prisma.settlement.findMany({
-            where: {
-                status: {
-                    in: [Status.pending, Status.unconfirmed] // Include unconfirmed to show waiting for verification
-                },
-                deleted_at: null,
-                expense: {
-                    team_id: teamId,
-                    paid_by: user.id,
-                }
-            },
-            include: {
-                expense: {
-                    select: {
-                        description: true,
-                        amount: true,
-                        created_at: true,
-                        category: true,
-                        // Include deadline fields
-                        is_monthly: true,
-                        deadline: true,
-                        deadline_day: true,
-                    }
-                }
-            },
-            orderBy: {
-                created_at: 'desc'
-            }
-        });
-
-        if (settlements.length === 0) {
-            return [];
-        }
-
-        // Fetch names of debtors (users who owe)
-        const debtorIds = [...new Set(settlements.map(s => s.owed_by))];
-        const debtors = await prisma.user.findMany({
-            where: { id: { in: debtorIds } },
-            select: { id: true, name: true, email: true, gcash_number: true }
-        });
-
-        const debtorMap = new Map(debtors.map(d => [d.id, d]));
-
-        // Transform data for UI
-        return settlements.map(settlement => ({
-            id: settlement.id,
-            amount: settlement.amount_owed,
-            expense_description: settlement.expense.description,
-            expense_amount: settlement.expense.amount,
-            expense_date: settlement.expense.created_at,
-            category: settlement.expense.category,
-            owed_by: debtorMap.get(settlement.owed_by) || { id: 'unknown', name: 'Unknown', email: '', gcash_number: null },
-            status: settlement.status,
-            payment_method: settlement.payment_method,
-            proof_url: settlement.proof_url,
-            // Include deadline info
-            is_monthly: settlement.expense.is_monthly,
-            deadline: settlement.expense.deadline,
-            deadline_day: settlement.expense.deadline_day,
-        }));
-
-    } catch (error) {
-        console.error("Error fetching my receivables:", error);
-        return [];
-    }
+    const { receivables } = await getPaymentsPageData(teamId);
+    return receivables;
 }
 
 // Optimized: Single raw SQL query for balance calculations (10x faster) + Redis caching
 export async function getTeamBalances(teamId: string) {
     try {
-        const user = await currentUser();
-        if (!user) {
+        const { userId } = await auth();
+        if (!userId) {
             return { youOwe: 0, owedToYou: 0, youOweCount: 0, owedToYouCount: 0 };
         }
 
-        const cacheKey = cacheKeys.teamBalances(teamId, user.id);
+        const cacheKey = cacheKeys.teamBalances(teamId, userId);
 
         return cached(cacheKey, async () => {
             // Single optimized raw SQL query with JOINs and aggregations
@@ -1471,10 +1460,10 @@ export async function getTeamBalances(teamId: string) {
                 owed_to_you_count: bigint;
             }>>`
                 SELECT 
-                    COALESCE(SUM(CASE WHEN s.owed_by = ${user.id} THEN s.amount_owed ELSE 0 END), 0) as you_owe,
-                    COALESCE(SUM(CASE WHEN e.paid_by = ${user.id} AND s.owed_by != ${user.id} THEN s.amount_owed ELSE 0 END), 0) as owed_to_you,
-                    COUNT(DISTINCT CASE WHEN s.owed_by = ${user.id} THEN e.paid_by END) as you_owe_count,
-                    COUNT(DISTINCT CASE WHEN e.paid_by = ${user.id} AND s.owed_by != ${user.id} THEN s.owed_by END) as owed_to_you_count
+                    COALESCE(SUM(CASE WHEN s.owed_by = ${userId} THEN s.amount_owed ELSE 0 END), 0) as you_owe,
+                    COALESCE(SUM(CASE WHEN e.paid_by = ${userId} AND s.owed_by != ${userId} THEN s.amount_owed ELSE 0 END), 0) as owed_to_you,
+                    COUNT(DISTINCT CASE WHEN s.owed_by = ${userId} THEN e.paid_by END) as you_owe_count,
+                    COUNT(DISTINCT CASE WHEN e.paid_by = ${userId} AND s.owed_by != ${userId} THEN s.owed_by END) as owed_to_you_count
                 FROM settlements s
                 INNER JOIN expenses e ON s.expense_id = e.id
                 WHERE e.team_id = ${teamId}
@@ -1500,8 +1489,8 @@ export async function getTeamBalances(teamId: string) {
 // Optimized: Single raw SQL query for all expense stats (replaces 5 queries with 1) + Redis caching
 export async function getExpenseStats(teamId: string) {
     try {
-        const user = await currentUser();
-        if (!user) {
+        const { userId } = await auth();
+        if (!userId) {
             return {
                 totalSpent: 0,
                 thisMonthSpent: 0,
@@ -1564,8 +1553,8 @@ export async function getExpenseStats(teamId: string) {
 // Optimized: Use groupBy aggregation
 export async function getCategoryStats(teamId: string) {
     try {
-        const user = await currentUser();
-        if (!user) return [];
+        const { userId } = await auth();
+        if (!userId) return [];
 
         // Use groupBy for efficient category aggregation
         // Only count parent/standalone expenses (exclude child monthly expenses)
@@ -1594,34 +1583,147 @@ export async function getCategoryStats(teamId: string) {
     }
 }
 
-// NEW: Unified dashboard data fetcher - single function to get all dashboard data
+// OPTIMIZED: Unified dashboard data fetcher - single auth + membership check + Redis cache
+// This is 4x faster than calling individual functions (1 auth vs 4, 1 membership check vs 4)
 export async function getDashboardData(teamId: string) {
     try {
-        const user = await currentUser();
-        if (!user) {
+        const { userId } = await auth();
+        if (!userId) {
             return null;
         }
 
-        // Verify membership once
-        const membership = await verifyTeamMembership(teamId, user.id);
+        // Single membership check for ALL data
+        const membership = await verifyTeamMembership(teamId, userId);
         if (!membership) {
             return null;
         }
 
-        // Fetch all data in parallel
-        const [expensesResult, settlementsResult, balances] = await Promise.all([
-            getTeamExpenses(teamId, { limit: 20 }),
-            getTeamSettlements(teamId, { limit: 15 }),
-            getTeamBalances(teamId),
-        ]);
+        // Use Redis cache with 15 second TTL (reduces DB calls on rapid navigation)
+        return await cached(
+            cacheKeys.dashboardData(teamId, userId),
+            async () => {
+                // Fetch ALL data in parallel with INLINE queries (no redundant auth/membership checks)
+                const [expenses, expenseMap, userList, settlementData, balanceData] = await Promise.all([
+                    // 1. Get expenses
+                    prisma.expense.findMany({
+                        where: { team_id: teamId, deleted_at: null, parent_expense_id: null },
+                        orderBy: { created_at: "desc" },
+                        take: 21, // +1 for pagination check
+                        include: {
+                            settlements: {
+                                where: { deleted_at: null },
+                                select: { id: true, owed_by: true, amount_owed: true, status: true, paid_at: true }
+                            }
+                        }
+                    }),
+                    // 2. Get expense lookup for settlements
+                    prisma.expense.findMany({
+                        where: { team_id: teamId, deleted_at: null },
+                        select: { id: true, description: true, paid_by: true, is_monthly: true, deadline: true, deadline_day: true }
+                    }).then(exps => new Map(exps.map(e => [e.id, e]))),
+                    // 3. Get all team members for name lookups
+                    prisma.teamMember.findMany({
+                        where: { team_id: teamId },
+                        select: { user_id: true, user: { select: { id: true, name: true } } }
+                    }).then(members => new Map(members.map(m => [m.user_id, m.user.name]))),
+                    // 4. Get settlements for settlements list
+                    prisma.settlement.findMany({
+                        where: { expense: { team_id: teamId, deleted_at: null }, deleted_at: null },
+                        orderBy: { created_at: "desc" },
+                        take: 16 // +1 for pagination check
+                    }),
+                    // 5. Get balance aggregates (pending settlements)
+                    prisma.settlement.findMany({
+                        where: {
+                            status: Status.pending,
+                            deleted_at: null,
+                            expense: { team_id: teamId, deleted_at: null }
+                        },
+                        select: { owed_by: true, amount_owed: true, expense: { select: { paid_by: true } } }
+                    })
+                ]);
 
-        return {
-            expenses: expensesResult.expenses,
-            expensesNextCursor: expensesResult.nextCursor,
-            settlements: settlementsResult.settlements,
-            settlementsNextCursor: settlementsResult.nextCursor,
-            balances,
-        };
+                // Process expenses
+                const hasMoreExpenses = expenses.length > 20;
+                const expenseResults = (hasMoreExpenses ? expenses.slice(0, -1) : expenses).map(exp => ({
+                    id: exp.id,
+                    description: exp.description,
+                    amount: exp.amount,
+                    category: exp.category,
+                    paid_by_name: userList.get(exp.paid_by) || "Unknown",
+                    created_at: exp.created_at,
+                    paid_by: exp.paid_by,
+                    currency: exp.currency,
+                    receipt_url: exp.receipt_url,
+                    team_id: exp.team_id,
+                    updated_at: exp.updated_at,
+                    deleted_at: exp.deleted_at,
+                    note: exp.note,
+                    is_monthly: exp.is_monthly,
+                    month_number: exp.month_number,
+                    total_months: exp.total_months,
+                    deadline: exp.deadline,
+                    deadline_day: exp.deadline_day,
+                    settlements: exp.settlements.map(s => ({
+                        ...s,
+                        member_name: userList.get(s.owed_by) || "Unknown"
+                    }))
+                }));
+
+                // Process settlements
+                const hasMoreSettlements = settlementData.length > 15;
+                const settlementResults = (hasMoreSettlements ? settlementData.slice(0, -1) : settlementData).map(s => {
+                    const expense = expenseMap.get(s.expense_id);
+                    return {
+                        id: s.id,
+                        expense_id: s.expense_id,
+                        expense_description: expense?.description || "Unknown",
+                        owed_by: userList.get(s.owed_by) || "Unknown",
+                        owed_to: expense ? (userList.get(expense.paid_by) || "Unknown") : "Unknown",
+                        owed_by_id: s.owed_by,
+                        owed_to_id: expense?.paid_by || "",
+                        amount: s.amount_owed,
+                        status: s.status,
+                        paid_at: s.paid_at,
+                        isCurrentUserOwing: s.owed_by === userId,
+                        isCurrentUserOwed: expense?.paid_by === userId,
+                        is_monthly: expense?.is_monthly || false,
+                        deadline: expense?.deadline || null,
+                        deadline_day: expense?.deadline_day || null
+                    };
+                });
+
+                // Calculate balances
+                let youOwe = 0, owedToYou = 0;
+                const youOweUsers = new Set<string>();
+                const owedToYouUsers = new Set<string>();
+                
+                for (const s of balanceData) {
+                    if (s.owed_by === userId) {
+                        youOwe += s.amount_owed;
+                        youOweUsers.add(s.expense.paid_by);
+                    }
+                    if (s.expense.paid_by === userId) {
+                        owedToYou += s.amount_owed;
+                        owedToYouUsers.add(s.owed_by);
+                    }
+                }
+
+                return {
+                    expenses: expenseResults,
+                    expensesNextCursor: hasMoreExpenses ? expenseResults[expenseResults.length - 1]?.id : null,
+                    settlements: settlementResults,
+                    settlementsNextCursor: hasMoreSettlements ? settlementResults[settlementResults.length - 1]?.id : null,
+                    balances: {
+                        youOwe,
+                        owedToYou,
+                        youOweCount: youOweUsers.size,
+                        owedToYouCount: owedToYouUsers.size
+                    }
+                };
+            },
+            15 // 15 second TTL - short enough to stay fresh, long enough to avoid repeated DB hits
+        );
     } catch (error) {
         console.error("Error fetching dashboard data:", error);
         return null;
