@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTeam } from "@/components/dashboard/team-provider";
-import { renameTeam, removeTeamMember, getTeamMembers, leaveTeam } from "@/app/actions/teams";
+import { renameTeam, removeTeamMember, getTeamMembers, leaveTeam, recalculateTeamExpenses } from "@/app/actions/teams";
 import { deleteAccount } from "@/app/actions/auth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -38,7 +38,7 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Users, MoreVertical, LogOut, Copy } from "lucide-react";
+import { Users, MoreVertical, LogOut, Copy, RefreshCw } from "lucide-react";
 import { useClerk } from "@clerk/nextjs";
 
 
@@ -54,6 +54,7 @@ export default function SettingsPage() {
     const [isRenaming, setIsRenaming] = useState(false);
     const [isLeavingTeam, setIsLeavingTeam] = useState(false);
     const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+    const [isRecalculating, setIsRecalculating] = useState(false);
     const { signOut } = useClerk();
 
 
@@ -172,6 +173,34 @@ export default function SettingsPage() {
         }
     };
 
+    const handleRecalculate = async () => {
+        if (!selectedTeam) return;
+
+        setIsRecalculating(true);
+        try {
+            const result = await recalculateTeamExpenses(selectedTeam.id);
+
+            if ('error' in result && result.error) {
+                toast.error(result.error);
+            } else if ('success' in result) {
+                toast.success(
+                    `Recalculated ${result.expensesProcessed} expense(s). ` +
+                    `Removed ${result.settlementsRemoved} orphaned, ` +
+                    `updated ${result.settlementsUpdated}, ` +
+                    `created ${result.settlementsCreated} new settlement(s).`
+                );
+                // Refresh members and teams to reflect any changes
+                const updatedMembers = await getTeamMembers(selectedTeam.id);
+                setMembers(updatedMembers);
+                await refreshTeams();
+            }
+        } catch (error) {
+            toast.error("Failed to recalculate expenses");
+        } finally {
+            setIsRecalculating(false);
+        }
+    };
+
     return (
         <div className="space-y-6 max-w-2xl">
             <div>
@@ -242,6 +271,45 @@ export default function SettingsPage() {
                                     </Button>
                                 </div>
                             </div>
+                        </div>
+
+                        <Separator />
+
+                        {/* Recalculate Expenses */}
+                        <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
+                            <div className="space-y-0.5">
+                                <Label>Recalculate Expenses</Label>
+                                <p className="text-sm text-muted-foreground">
+                                    Refresh and recalculate all pending expenses for active members only
+                                </p>
+                            </div>
+                            <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        disabled={isRecalculating || selectedTeam.role !== "ADMIN"}
+                                    >
+                                        <RefreshCw className={`w-4 h-4 mr-2 ${isRecalculating ? 'animate-spin' : ''}`} />
+                                        {isRecalculating ? "Recalculating..." : "Recalculate"}
+                                    </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                        <AlertDialogTitle>Recalculate All Expenses?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                            This will recalculate all pending expenses for active team members only.
+                                            Settlements for removed members will be deleted and amounts will be
+                                            redistributed evenly among current members.
+                                        </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                        <AlertDialogAction onClick={handleRecalculate}>
+                                            Recalculate
+                                        </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
                         </div>
 
                         <Separator />

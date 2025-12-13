@@ -376,7 +376,16 @@ export async function getExpenseById(expenseId: string) {
         });
 
         const users = await prisma.user.findMany({
-            where: { id: { in: Array.from(allUserIds) } },
+            where: {
+                id: { in: Array.from(allUserIds) },
+                ...(expense.team_id ? {
+                    teams: {
+                        some: {
+                            team_id: expense.team_id  // Only current team members
+                        }
+                    }
+                } : {})
+            },
             select: { id: true, name: true, email: true },
         });
 
@@ -465,7 +474,14 @@ export async function getTeamExpenses(
 
         const users = allUserIds.size > 0
             ? await prisma.user.findMany({
-                where: { id: { in: Array.from(allUserIds) } },
+                where: {
+                    id: { in: Array.from(allUserIds) },
+                    teams: {
+                        some: {
+                            team_id: teamId  // Only users who are current team members
+                        }
+                    }
+                },
                 select: { id: true, name: true },
             })
             : [];
@@ -480,11 +496,11 @@ export async function getTeamExpenses(
         return {
             expenses: resultExpenses.map((expense) => ({
                 ...expense,
-                paid_by_name: userMap.get(expense.paid_by) || "Unknown",
+                paid_by_name: userMap.get(expense.paid_by) || "Former Member",
                 // Map settlements with member names
                 settlements: expense.settlements.map((s) => ({
                     ...s,
-                    member_name: userMap.get(s.owed_by) || "Unknown",
+                    member_name: userMap.get(s.owed_by) || "Former Member",
                 })),
             })),
             nextCursor,
@@ -501,6 +517,16 @@ export async function getMonthlyBreakdown(parentExpenseId: string) {
     try {
         const user = await currentUser();
         if (!user) {
+            return { childExpenses: [] };
+        }
+
+        // Get team_id from parent expense
+        const parentExpense = await prisma.expense.findUnique({
+            where: { id: parentExpenseId },
+            select: { team_id: true }
+        });
+
+        if (!parentExpense?.team_id) {
             return { childExpenses: [] };
         }
 
@@ -533,7 +559,14 @@ export async function getMonthlyBreakdown(parentExpenseId: string) {
 
         const users = allUserIds.size > 0
             ? await prisma.user.findMany({
-                where: { id: { in: Array.from(allUserIds) } },
+                where: {
+                    id: { in: Array.from(allUserIds) },
+                    teams: {
+                        some: {
+                            team_id: parentExpense.team_id  // Only current team members
+                        }
+                    }
+                },
                 select: { id: true, name: true },
             })
             : [];
@@ -543,10 +576,10 @@ export async function getMonthlyBreakdown(parentExpenseId: string) {
         return {
             childExpenses: childExpenses.map((expense) => ({
                 ...expense,
-                paid_by_name: userMap.get(expense.paid_by) || "Unknown",
+                paid_by_name: userMap.get(expense.paid_by) || "Former Member",
                 settlements: expense.settlements.map((s) => ({
                     ...s,
-                    member_name: userMap.get(s.owed_by) || "Unknown",
+                    member_name: userMap.get(s.owed_by) || "Former Member",
                 })),
             })),
         };
@@ -669,7 +702,14 @@ export async function getTeamSettlements(
 
         const users = userIds.length > 0
             ? await prisma.user.findMany({
-                where: { id: { in: userIds } },
+                where: {
+                    id: { in: userIds },
+                    teams: {
+                        some: {
+                            team_id: teamId  // Only current team members
+                        }
+                    }
+                },
                 select: { id: true, name: true },
             })
             : [];
@@ -690,8 +730,8 @@ export async function getTeamSettlements(
                     id: settlement.id,
                     expense_id: settlement.expense_id,
                     expense_description: expense?.description || "Unknown expense",
-                    owed_by: isCurrentUserOwing ? "You" : userMap.get(settlement.owed_by) || "Unknown",
-                    owed_to: isCurrentUserOwed ? "You" : userMap.get(expense?.paid_by || "") || "Unknown",
+                    owed_by: isCurrentUserOwing ? "You" : userMap.get(settlement.owed_by) || "Former Member",
+                    owed_to: isCurrentUserOwed ? "You" : userMap.get(expense?.paid_by || "") || "Former Member",
                     owed_by_id: settlement.owed_by,
                     owed_to_id: expense?.paid_by || "",
                     amount: settlement.amount_owed,

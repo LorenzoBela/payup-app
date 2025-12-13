@@ -24,6 +24,30 @@ export async function createTeam(name: string) {
             return { error: "Not authenticated" };
         }
 
+        // Ensure user exists in database before creating team
+        // This prevents foreign key constraint failures for new users
+        const email = user.emailAddresses.find(
+            (email: { id: string; emailAddress: string }) => email.id === user.primaryEmailAddressId
+        )?.emailAddress;
+
+        const fullName = [user.firstName, user.lastName]
+            .filter(Boolean)
+            .join(" ")
+            .trim() || user.fullName || "Unknown";
+
+        await prisma.user.upsert({
+            where: { id: user.id },
+            update: {
+                name: fullName,
+                email: email || "",
+            },
+            create: {
+                id: user.id,
+                name: fullName,
+                email: email || "",
+            },
+        });
+
         // Generate unique code with retry limit
         let code = generateTeamCode();
         let attempts = 0;
@@ -70,6 +94,30 @@ export async function joinTeam(code: string) {
         if (!user) {
             return { error: "Not authenticated" };
         }
+
+        // Ensure user exists in database before joining team
+        // This prevents foreign key constraint failures for new users
+        const email = user.emailAddresses.find(
+            (email: { id: string; emailAddress: string }) => email.id === user.primaryEmailAddressId
+        )?.emailAddress;
+
+        const fullName = [user.firstName, user.lastName]
+            .filter(Boolean)
+            .join(" ")
+            .trim() || user.fullName || "Unknown";
+
+        await prisma.user.upsert({
+            where: { id: user.id },
+            update: {
+                name: fullName,
+                email: email || "",
+            },
+            create: {
+                id: user.id,
+                name: fullName,
+                email: email || "",
+            },
+        });
 
         // Single query to find team, check membership, and get current member count
         const team = await prisma.team.findUnique({
@@ -321,8 +369,6 @@ export async function removeTeamMember(teamId: string, memberId: string) {
         }
 
         // Check if the member to be removed exists in the team
-        // We find by user_id inside the team context. 
-        // Note: memberId passed here should be the user_id of the member to remove.
         const memberToRemove = await prisma.teamMember.findUnique({
             where: {
                 team_id_user_id: {
@@ -336,20 +382,100 @@ export async function removeTeamMember(teamId: string, memberId: string) {
             return { error: "Member not found in this team" };
         }
 
-        await prisma.teamMember.delete({
-            where: {
-                team_id_user_id: {
+        // Use transaction to handle member removal and settlement recalculation
+        await prisma.$transaction(async (tx) => {
+            // 1. Get all team members before removal to know the current count
+            const currentMembers = await tx.teamMember.findMany({
+                where: { team_id: teamId },
+                select: { user_id: true },
+            });
+
+            const currentMemberCount = currentMembers.length;
+            const newMemberCount = currentMemberCount - 1;
+
+            if (newMemberCount === 0) {
+                throw new Error("Cannot remove the last member of the team");
+            }
+
+            // 2. Find all pending expenses for this team that need recalculation
+            const pendingExpenses = await tx.expense.findMany({
+                where: {
                     team_id: teamId,
-                    user_id: memberId,
+                    deleted_at: null,
+                    settlements: {
+                        some: {
+                            status: "pending",
+                            deleted_at: null,
+                        },
+                    },
                 },
-            },
+                include: {
+                    settlements: {
+                        where: { deleted_at: null },
+                    },
+                },
+            });
+
+            // 3. For each pending expense, delete removed member's settlements and recalculate
+            for (const expense of pendingExpenses) {
+                // Delete all settlements for the removed member
+                await tx.settlement.updateMany({
+                    where: {
+                        expense_id: expense.id,
+                        owed_by: memberId,
+                        deleted_at: null,
+                    },
+                    data: {
+                        deleted_at: new Date(),
+                    },
+                });
+
+                // Recalculate split amount based on new member count
+                const newSplitAmount = expense.amount / newMemberCount;
+
+                // Update remaining pending settlements with new amount
+                await tx.settlement.updateMany({
+                    where: {
+                        expense_id: expense.id,
+                        status: "pending",
+                        deleted_at: null,
+                        owed_by: { not: memberId }, // Only update remaining members
+                    },
+                    data: {
+                        amount_owed: newSplitAmount,
+                    },
+                });
+            }
+
+            // 4. Remove the team member
+            await tx.teamMember.delete({
+                where: {
+                    team_id_user_id: {
+                        team_id: teamId,
+                        user_id: memberId,
+                    },
+                },
+            });
+
+            // 5. Log the activity
+            await tx.activityLog.create({
+                data: {
+                    team_id: teamId,
+                    user_id: user.id,
+                    action: "REMOVED_MEMBER",
+                    details: `Removed member from team. Recalculated ${pendingExpenses.length} pending expense(s).`,
+                },
+            });
         });
+
+        // Invalidate cache for all team members
+        await invalidateTeamCache(teamId, user.id);
 
         revalidatePath("/dashboard");
         return { success: true };
     } catch (error) {
         console.error("Error removing team member:", error);
-        return { error: "Failed to remove member" };
+        return { error: error instanceof Error ? error.message : "Failed to remove member" };
     }
 }
 
@@ -444,5 +570,159 @@ export async function inviteMemberByEmail(teamId: string, email: string) {
     } catch (error) {
         console.error("Error inviting member:", error);
         return { error: "Failed to invite member" };
+    }
+}
+
+export async function recalculateTeamExpenses(teamId: string) {
+    try {
+        const user = await currentUser();
+        if (!user) return { error: "Not authenticated" };
+
+        // Verify user is an admin of this team
+        const membership = await prisma.teamMember.findUnique({
+            where: {
+                team_id_user_id: {
+                    team_id: teamId,
+                    user_id: user.id,
+                },
+            },
+        });
+
+        if (!membership || membership.role !== TeamRole.ADMIN) {
+            return { error: "Unauthorized: Only admins can recalculate expenses" };
+        }
+
+        // Use transaction to ensure atomicity
+        const result = await prisma.$transaction(async (tx) => {
+            // 1. Get all current active team members
+            const activeMembers = await tx.teamMember.findMany({
+                where: { team_id: teamId },
+                select: { user_id: true },
+            });
+
+            const activeMemberIds = new Set(activeMembers.map(m => m.user_id));
+            const activeMemberCount = activeMembers.length;
+
+            if (activeMemberCount === 0) {
+                throw new Error("No active members in team");
+            }
+
+            // 2. Find all pending expenses for this team
+            const pendingExpenses = await tx.expense.findMany({
+                where: {
+                    team_id: teamId,
+                    deleted_at: null,
+                    settlements: {
+                        some: {
+                            status: "pending",
+                            deleted_at: null,
+                        },
+                    },
+                },
+                include: {
+                    settlements: {
+                        where: { deleted_at: null },
+                    },
+                },
+            });
+
+            let settlementsRemoved = 0;
+            let settlementsUpdated = 0;
+            let settlementsCreated = 0;
+
+            // 3. For each pending expense, recalculate settlements
+            for (const expense of pendingExpenses) {
+                // Calculate new split amount - divide by ALL active members (including payer)
+                // Each person's share = total / all members
+                // The payer's share is already "paid" by them, so we only create settlements for others
+                const membersWhoOwe = activeMembers.filter(m => m.user_id !== expense.paid_by);
+                const newSplitAmount = activeMemberCount > 0
+                    ? expense.amount / activeMemberCount
+                    : 0;
+
+                // Soft-delete settlements for users who are no longer active members
+                for (const settlement of expense.settlements) {
+                    if (!activeMemberIds.has(settlement.owed_by)) {
+                        await tx.settlement.update({
+                            where: { id: settlement.id },
+                            data: { deleted_at: new Date() },
+                        });
+                        settlementsRemoved++;
+                    }
+                }
+
+                // Update all pending settlements for active members with new amount
+                const updateResult = await tx.settlement.updateMany({
+                    where: {
+                        expense_id: expense.id,
+                        status: "pending",
+                        deleted_at: null,
+                        owed_by: { in: Array.from(activeMemberIds) },
+                    },
+                    data: {
+                        amount_owed: newSplitAmount,
+                    },
+                });
+                settlementsUpdated += updateResult.count;
+
+                // Check for active members who don't have a settlement yet
+                const existingSettlementUserIds = new Set(
+                    expense.settlements
+                        .filter(s => s.deleted_at === null)
+                        .map(s => s.owed_by)
+                );
+
+                for (const member of membersWhoOwe) {
+                    if (!existingSettlementUserIds.has(member.user_id)) {
+                        await tx.settlement.create({
+                            data: {
+                                expense_id: expense.id,
+                                owed_by: member.user_id,
+                                amount_owed: newSplitAmount,
+                                status: "pending",
+                            },
+                        });
+                        settlementsCreated++;
+                    }
+                }
+            }
+
+            // 4. Log the activity
+            await tx.activityLog.create({
+                data: {
+                    team_id: teamId,
+                    user_id: user.id,
+                    action: "RECALCULATED_EXPENSES",
+                    details: `Recalculated ${pendingExpenses.length} expense(s). Removed ${settlementsRemoved} orphaned settlement(s), updated ${settlementsUpdated}, created ${settlementsCreated} new settlement(s).`,
+                },
+            });
+
+            return {
+                expensesProcessed: pendingExpenses.length,
+                settlementsRemoved,
+                settlementsUpdated,
+                settlementsCreated,
+            };
+        });
+
+        // Invalidate cache for all team members
+        const allMembers = await prisma.teamMember.findMany({
+            where: { team_id: teamId },
+            select: { user_id: true },
+        });
+
+        for (const member of allMembers) {
+            await invalidateTeamCache(teamId, member.user_id);
+        }
+
+        revalidatePath("/dashboard");
+
+        return {
+            success: true,
+            ...result,
+        };
+    } catch (error) {
+        console.error("Error recalculating expenses:", error);
+        return { error: error instanceof Error ? error.message : "Failed to recalculate expenses" };
     }
 }

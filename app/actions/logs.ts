@@ -20,7 +20,7 @@ export async function getTeamLogs(
         // Single query with membership check built into the query
         // Get logs and verify membership in one go
         const logs = await prisma.activityLog.findMany({
-            where: { 
+            where: {
                 team_id: teamId,
                 ...(cursor ? { id: { lt: cursor } } : {}),
             },
@@ -78,7 +78,7 @@ export async function getTeamLogs(
                 action: log.action,
                 details: log.details,
                 created_at: log.created_at,
-                user_name: log.user.name || "Unknown",
+                user_name: log.user.name || "Former Member",
                 user_email: log.user.email,
             })),
             nextCursor,
