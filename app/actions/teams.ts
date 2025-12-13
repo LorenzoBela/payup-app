@@ -192,7 +192,9 @@ export async function joinTeam(code: string) {
                 // Check if new member already has a settlement for this expense (shouldn't happen, but safety check)
                 const existingSettlement = expense.settlements.find(s => s.owed_by === user.id);
 
-                if (!existingSettlement) {
+                // Skip if joining member is the payer (they don't owe themselves)
+                // or if they already have a settlement
+                if (!existingSettlement && expense.paid_by !== user.id) {
                     // Create new settlement for the joining member
                     await tx.settlement.create({
                         data: {

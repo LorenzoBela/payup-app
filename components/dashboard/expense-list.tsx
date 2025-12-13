@@ -14,6 +14,7 @@ import { useState, useEffect, useRef, useCallback, memo, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { deleteExpense, getMonthlyBreakdown } from "@/app/actions/expenses";
 import { useTeamExpenses } from "@/lib/hooks/use-dashboard-data";
+import { useTeam } from "@/components/dashboard/team-provider";
 import { toast } from "sonner";
 import {
   Select,
@@ -22,6 +23,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { EditExpenseDialog } from "@/components/dashboard/edit-expense-dialog";
+import { useUser } from "@clerk/nextjs";
 
 // Categories available
 const CATEGORIES = ["All", "Food", "Printing", "Supplies", "Transportation", "Utilities", "Other"];
@@ -135,6 +138,7 @@ interface ExpenseData {
   deadline: Date | null;
   deadline_day: number | null;
   settlements: Settlement[];
+  note?: string | null;
 }
 
 // Grid Card Component
@@ -148,6 +152,9 @@ const ExpenseGridCard = memo(function ExpenseGridCard({
   isLoadingChildren,
   childExpenses,
   onCardClick,
+  isAdmin,
+  canEdit,
+  onRefresh,
 }: {
   expense: ExpenseData;
   isDeleting: boolean;
@@ -158,6 +165,9 @@ const ExpenseGridCard = memo(function ExpenseGridCard({
   isLoadingChildren: boolean;
   childExpenses: ChildExpense[];
   onCardClick: () => void;
+  isAdmin: boolean;
+  canEdit: boolean;
+  onRefresh: () => void;
 }) {
   const paidCount = expense.settlements.filter(s => s.status === "paid").length;
   const totalMembers = expense.settlements.length;
@@ -179,24 +189,43 @@ const ExpenseGridCard = memo(function ExpenseGridCard({
               {expense.category}
             </Badge>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-            onClick={(e) => { e.stopPropagation(); onDelete(expense.id); }}
-            disabled={isDeleting}
-          >
-            {isDeleting ? (
-              <Loader2 className="w-3 h-3 animate-spin" />
-            ) : (
-              <Trash2 className="w-3 h-3 text-destructive" />
+          <div className="flex items-center gap-1">
+            {(isAdmin || canEdit) && (
+              <div onClick={(e) => e.stopPropagation()}>
+                <EditExpenseDialog
+                  expenseId={expense.id}
+                  currentDescription={expense.description}
+                  currentNote={expense.note}
+                  onExpenseUpdated={onRefresh}
+                  iconOnly
+                  triggerClassName="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                />
+              </div>
             )}
-          </Button>
+            {isAdmin && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={(e) => { e.stopPropagation(); onDelete(expense.id); }}
+                disabled={isDeleting}
+              >
+                {isDeleting ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3 h-3 text-destructive" />
+                )}
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Title & Amount */}
         <div className="flex-1">
           <h3 className="font-semibold text-foreground line-clamp-2 mb-1">{expense.description}</h3>
+          {expense.note && (
+            <p className="text-xs text-muted-foreground line-clamp-2 mb-2 italic">{expense.note}</p>
+          )}
           <p className="text-2xl font-bold text-primary">₱{expense.amount.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</p>
           {expense.is_monthly && expense.total_months && (
             <p className="text-xs text-muted-foreground mt-1">
@@ -265,37 +294,39 @@ const ExpenseGridCard = memo(function ExpenseGridCard({
           <span>Paid by {expense.paid_by_name}</span>
           <span>{new Date(expense.created_at).toLocaleDateString()}</span>
         </div>
-      </div>
 
-      {/* Monthly Breakdown Overlay */}
-      {isExpanded && expense.is_monthly && childExpenses.length > 0 && (
-        <div className="absolute top-full left-0 right-0 z-10 mt-2 bg-card border border-border rounded-xl p-4 shadow-xl">
-          <div className="space-y-2 max-h-[300px] overflow-y-auto">
+        {/* Monthly Breakdown Inline */}
+        {isExpanded && expense.is_monthly && childExpenses.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-border space-y-2 max-h-[250px] overflow-y-auto">
             {childExpenses.map((child) => {
               const childPaidCount = child.settlements.filter(s => s.status === "paid").length;
               const childTotalMembers = child.settlements.length;
               return (
-                <div key={child.id} className="p-3 bg-muted/30 rounded-lg">
+                <div key={child.id} className="p-3 bg-muted/40 rounded-lg">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-xs font-medium text-primary">
+                      <div className="w-6 h-6 rounded-full bg-foreground text-background flex items-center justify-center text-xs font-bold">
                         {child.month_number}
                       </div>
                       <span className="font-medium text-sm">Month {child.month_number}</span>
+                      {childTotalMembers > 0 && (
+                        <Badge variant="outline" className={`text-[10px] ${childPaidCount === childTotalMembers ? 'border-green-500/50 text-green-600' : 'border-border'}`}>
+                          {childPaidCount}/{childTotalMembers}
+                        </Badge>
+                      )}
                     </div>
                     <span className="font-semibold">₱{child.amount.toFixed(0)}</span>
                   </div>
                   {child.deadline && (
-                    <div className="flex items-center gap-1 text-xs text-orange-500 mb-2">
+                    <div className="flex items-center gap-1 text-xs text-orange-600 dark:text-orange-400 mb-2">
                       <Clock className="w-3 h-3" />
                       Due: {new Date(child.deadline).toLocaleDateString()}
                     </div>
                   )}
-                  {/* Show actual member names and status */}
                   {child.settlements.length > 0 && (
                     <div className="mt-2 space-y-1">
                       {child.settlements.map((s) => (
-                        <div key={s.id} className="flex items-center justify-between gap-2 text-xs bg-background/50 px-2 py-1 rounded">
+                        <div key={s.id} className="flex items-center justify-between gap-2 text-xs bg-background px-2 py-1.5 rounded border border-border/50">
                           <div className="flex items-center gap-1.5">
                             <User className="w-3 h-3 text-muted-foreground" />
                             <span className="font-medium">{s.member_name}</span>
@@ -312,8 +343,8 @@ const ExpenseGridCard = memo(function ExpenseGridCard({
               );
             })}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 });
@@ -324,16 +355,25 @@ const ExpenseGridItem = memo(function ExpenseGridItem({
   isDeleting,
   onDelete,
   getCategoryColor,
+  isAdmin,
+  userId,
+  onRefresh,
 }: {
   expense: ExpenseData;
   isDeleting: boolean;
   onDelete: (id: string) => void;
   getCategoryColor: (category: string) => string;
+  isAdmin: boolean;
+  userId: string | null;
+  onRefresh: () => void;
 }) {
   const router = useRouter();
   const [isExpanded, setIsExpanded] = useState(false);
   const [childExpenses, setChildExpenses] = useState<ChildExpense[]>([]);
   const [isLoadingChildren, setIsLoadingChildren] = useState(false);
+
+  // User can edit if they're admin or the expense owner
+  const canEdit = isAdmin || (userId !== null && expense.paid_by_name !== 'Former Member');
 
   const handleToggleExpand = async (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card click
@@ -368,6 +408,9 @@ const ExpenseGridItem = memo(function ExpenseGridItem({
       isLoadingChildren={isLoadingChildren}
       childExpenses={childExpenses}
       onCardClick={handleCardClick}
+      isAdmin={isAdmin}
+      canEdit={canEdit}
+      onRefresh={onRefresh}
     />
   );
 });
@@ -377,17 +420,26 @@ const ExpenseListItem = memo(function ExpenseListItem({
   expense,
   isDeleting,
   onDelete,
-  getCategoryColor
+  getCategoryColor,
+  isAdmin,
+  userId,
+  onRefresh,
 }: {
   expense: ExpenseData;
   isDeleting: boolean;
   onDelete: (id: string) => void;
   getCategoryColor: (category: string) => string;
+  isAdmin: boolean;
+  userId: string | null;
+  onRefresh: () => void;
 }) {
   const router = useRouter();
   const [isExpanded, setIsExpanded] = useState(false);
   const [childExpenses, setChildExpenses] = useState<ChildExpense[]>([]);
   const [isLoadingChildren, setIsLoadingChildren] = useState(false);
+
+  // User can edit if they're admin or the expense owner
+  const canEdit = isAdmin || (userId !== null && expense.paid_by_name !== 'Former Member');
 
   const handleToggleExpand = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -427,6 +479,9 @@ const ExpenseListItem = memo(function ExpenseListItem({
             </div>
             <div>
               <p className="font-medium text-foreground">{expense.description}</p>
+              {expense.note && (
+                <p className="text-xs text-muted-foreground italic mt-0.5 line-clamp-1">{expense.note}</p>
+              )}
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <Badge variant="secondary" className={getCategoryColor(expense.category)}>
                   {expense.category}
@@ -475,18 +530,31 @@ const ExpenseListItem = memo(function ExpenseListItem({
                   )}
                 </Button>
               )}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={(e) => { e.stopPropagation(); onDelete(expense.id); }}
-                disabled={isDeleting}
-              >
-                {isDeleting ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Trash2 className="w-4 h-4 text-destructive" />
-                )}
-              </Button>
+              {(isAdmin || canEdit) && (
+                <div onClick={(e) => e.stopPropagation()}>
+                  <EditExpenseDialog
+                    expenseId={expense.id}
+                    currentDescription={expense.description}
+                    currentNote={expense.note}
+                    onExpenseUpdated={onRefresh}
+                    iconOnly
+                  />
+                </div>
+              )}
+              {isAdmin && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={(e) => { e.stopPropagation(); onDelete(expense.id); }}
+                  disabled={isDeleting}
+                >
+                  {isDeleting ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4 text-destructive" />
+                  )}
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -542,6 +610,11 @@ interface ExpenseListProps {
 }
 
 export function ExpenseList({ teamId, refreshKey }: ExpenseListProps) {
+  const { selectedTeam } = useTeam();
+  const { user } = useUser();
+  const isAdmin = selectedTeam?.role === 'admin';
+  const userId = user?.id || null;
+
   const [searchQuery, setSearchQuery] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
@@ -833,6 +906,9 @@ export function ExpenseList({ teamId, refreshKey }: ExpenseListProps) {
                 isDeleting={deletingId === expense.id}
                 onDelete={handleDelete}
                 getCategoryColor={getCategoryColor}
+                isAdmin={isAdmin}
+                userId={userId}
+                onRefresh={() => mutate()}
               />
             ))}
           </div>
@@ -845,6 +921,9 @@ export function ExpenseList({ teamId, refreshKey }: ExpenseListProps) {
                 isDeleting={deletingId === expense.id}
                 onDelete={handleDelete}
                 getCategoryColor={getCategoryColor}
+                isAdmin={isAdmin}
+                userId={userId}
+                onRefresh={() => mutate()}
               />
             ))}
           </div>

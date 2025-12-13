@@ -30,6 +30,7 @@ model Expense {
   id          String    @id @default(uuid())
   amount      Float
   description String
+  note        String?
   paid_by     String
   currency    String
   category    String

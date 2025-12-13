@@ -13,6 +13,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
@@ -28,20 +29,20 @@ export function AddExpenseDialog({ teamId, onExpenseAdded }: AddExpenseDialogPro
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isMonthlyMode, setIsMonthlyMode] = useState(false);
 
-  // Regular expense form
   const [formData, setFormData] = useState({
     description: "",
     amount: "",
     category: "",
+    note: "",
   });
 
-  // Monthly expense form
   const [monthlyData, setMonthlyData] = useState({
     description: "",
     totalAmount: "",
     numberOfMonths: "",
     deadlineDay: "",
     category: "",
+    note: "",
   });
 
   // Calculate breakdown for monthly mode
@@ -62,13 +63,14 @@ export function AddExpenseDialog({ teamId, onExpenseAdded }: AddExpenseDialogPro
   }, [monthlyData.totalAmount, monthlyData.numberOfMonths]);
 
   const resetForm = () => {
-    setFormData({ description: "", amount: "", category: "" });
+    setFormData({ description: "", amount: "", category: "", note: "" });
     setMonthlyData({
       description: "",
       totalAmount: "",
       numberOfMonths: "",
       deadlineDay: "",
-      category: ""
+      category: "",
+      note: ""
     });
     setIsMonthlyMode(false);
   };
@@ -112,6 +114,7 @@ export function AddExpenseDialog({ teamId, onExpenseAdded }: AddExpenseDialogPro
           deadlineDay,
           category: monthlyData.category.trim() || "Monthly",
           teamId,
+          note: monthlyData.note.trim() || undefined,
         });
 
         if (result.error) {
@@ -132,6 +135,7 @@ export function AddExpenseDialog({ teamId, onExpenseAdded }: AddExpenseDialogPro
           amount: parseFloat(formData.amount),
           category: formData.category.trim() || "General",
           teamId,
+          note: formData.note.trim() || undefined,
         });
 
         if (result.error) {
@@ -267,6 +271,21 @@ export function AddExpenseDialog({ teamId, onExpenseAdded }: AddExpenseDialogPro
                   </div>
                 </div>
 
+                {/* Note for monthly */}
+                <div className="grid gap-2">
+                  <Label htmlFor="monthly-note">Note (Optional)</Label>
+                  <Textarea
+                    id="monthly-note"
+                    placeholder="Add any additional notes or context..."
+                    value={monthlyData.note}
+                    onChange={(e) =>
+                      setMonthlyData({ ...monthlyData, note: e.target.value })
+                    }
+                    rows={2}
+                    className="resize-none"
+                  />
+                </div>
+
                 {/* Breakdown Preview */}
                 {monthlyBreakdown && (
                   <div className="p-4 rounded-lg bg-primary/5 border border-primary/10">
@@ -344,6 +363,21 @@ export function AddExpenseDialog({ teamId, onExpenseAdded }: AddExpenseDialogPro
                   <p className="text-xs text-muted-foreground">
                     Leave blank for &quot;General&quot;
                   </p>
+                </div>
+
+                {/* Note for regular expense */}
+                <div className="grid gap-2">
+                  <Label htmlFor="note">Note (Optional)</Label>
+                  <Textarea
+                    id="note"
+                    placeholder="Add any additional notes or context..."
+                    value={formData.note}
+                    onChange={(e) =>
+                      setFormData({ ...formData, note: e.target.value })
+                    }
+                    rows={2}
+                    className="resize-none"
+                  />
                 </div>
               </>
             )}

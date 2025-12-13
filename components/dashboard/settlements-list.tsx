@@ -2,107 +2,103 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CheckCircle, Clock, Loader2 } from "lucide-react";
-import { useState, useEffect, useRef, useCallback, memo } from "react";
-import { markSettlementAsPaid } from "@/app/actions/expenses";
+import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { CheckCircle, ChevronRight, ArrowRight, Circle, Clock } from "lucide-react";
+import { useEffect, useMemo, memo } from "react";
 import { useTeamSettlements } from "@/lib/hooks/use-dashboard-data";
-import { toast } from "sonner";
+import Link from "next/link";
 
-// Memoized settlement item component for better performance
-interface SettlementItemProps {
-  settlement: {
-    id: string;
-    expense_description: string;
-    owed_by: string;
-    owed_to: string;
+interface DebtRelationship {
+  fromPerson: string;
+  toPerson: string;
+  totalAmount: number;
+  paidCount: number;
+  pendingCount: number;
+  unconfirmedCount: number;
+  items: Array<{
+    description: string;
     amount: number;
     status: string;
-    isCurrentUserOwing: boolean;
-    // Deadline fields
-    is_monthly: boolean;
-    deadline: Date | null;
-    deadline_day: number | null;
-  };
-  isMarking: boolean;
-  onMarkAsPaid: (id: string) => void;
+  }>;
 }
 
-const SettlementItem = memo(function SettlementItem({
-  settlement,
-  isMarking,
-  onMarkAsPaid,
-}: SettlementItemProps) {
+// Get initials from name
+const getInitials = (name: string) => {
+  if (name === "You") return "ME";
+  return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+};
+
+// Debt row showing Person A → Person B with status breakdown
+const DebtRow = memo(function DebtRow({ debt }: { debt: DebtRelationship }) {
+  const totalCount = debt.paidCount + debt.pendingCount + debt.unconfirmedCount;
+  const isPaid = debt.pendingCount === 0 && debt.unconfirmedCount === 0;
+
   return (
-    <div className="p-4 border border-border rounded-lg space-y-3 hover:bg-muted/30 transition-colors">
-      <div className="flex items-start justify-between">
-        <div className="space-y-1">
-          <p className="text-sm font-medium">
-            {settlement.isCurrentUserOwing ? (
-              <>
-                You owe <span className="text-primary font-semibold">{settlement.owed_to}</span>
-              </>
-            ) : (
-              <>
-                <span className="text-primary font-semibold">{settlement.owed_by}</span> owes you
-              </>
-            )}
-          </p>
-          <p className="text-xs text-muted-foreground line-clamp-1">
-            {settlement.expense_description}
-          </p>
-          {settlement.is_monthly && settlement.deadline && (
-            <div className="flex items-center gap-1 text-xs text-orange-600 dark:text-orange-400 font-medium mt-1">
-              <Clock className="w-3 h-3" />
-              <span>
-                Due: {new Date(settlement.deadline).toLocaleDateString(undefined, {
-                  month: 'short',
-                  day: 'numeric',
-                  year: 'numeric'
-                })}
-              </span>
-            </div>
-          )}
+    <div className={`p-3 rounded-lg border transition-colors ${isPaid ? 'bg-muted/30 border-border/50' : 'bg-background border-border hover:border-foreground/20'}`}>
+      {/* Main row */}
+      <div className="flex items-center gap-3">
+        {/* From person */}
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <Avatar className="h-8 w-8 flex-shrink-0 border border-border">
+            <AvatarFallback className="bg-foreground text-background text-xs font-semibold">
+              {getInitials(debt.fromPerson)}
+            </AvatarFallback>
+          </Avatar>
+          <span className="text-sm font-medium truncate">{debt.fromPerson}</span>
         </div>
-        <Badge
-          variant={settlement.status === "paid" ? "default" : "secondary"}
-          className={
-            settlement.status === "paid"
-              ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
-              : "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
-          }
-        >
-          {settlement.status === "paid" ? (
-            <CheckCircle className="w-3 h-3 mr-1" />
-          ) : (
-            <Clock className="w-3 h-3 mr-1" />
-          )}
-          {settlement.status}
-        </Badge>
+
+        {/* Arrow */}
+        <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+
+        {/* To person */}
+        <div className="flex items-center gap-2 min-w-0 flex-1 justify-end">
+          <span className="text-sm font-medium truncate text-right">{debt.toPerson}</span>
+          <Avatar className="h-8 w-8 flex-shrink-0 border border-border">
+            <AvatarFallback className="bg-foreground text-background text-xs font-semibold">
+              {getInitials(debt.toPerson)}
+            </AvatarFallback>
+          </Avatar>
+        </div>
+
+        {/* Amount */}
+        <div className="text-right min-w-[75px] flex-shrink-0">
+          <span className={`text-sm font-bold ${isPaid ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
+            ₱{debt.totalAmount.toFixed(2)}
+          </span>
+        </div>
       </div>
 
-      <div className="flex items-center justify-between">
-        <span className="text-lg font-bold">
-          ₱{settlement.amount.toFixed(2)}
-        </span>
-        {settlement.status === "pending" && settlement.isCurrentUserOwing && (
-          <Button
-            size="sm"
-            onClick={() => onMarkAsPaid(settlement.id)}
-            disabled={isMarking}
-          >
-            {isMarking ? (
-              <>
-                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                Marking...
-              </>
-            ) : (
-              "Mark as Paid"
-            )}
-          </Button>
+      {/* Status bullets */}
+      <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground pl-10">
+        {debt.pendingCount > 0 && (
+          <span className="flex items-center gap-1">
+            <Circle className="w-2 h-2 fill-current" />
+            {debt.pendingCount} pending
+          </span>
+        )}
+        {debt.unconfirmedCount > 0 && (
+          <span className="flex items-center gap-1 text-yellow-600 dark:text-yellow-500">
+            <Clock className="w-3 h-3" />
+            {debt.unconfirmedCount} awaiting
+          </span>
+        )}
+        {debt.paidCount > 0 && (
+          <span className="flex items-center gap-1 text-foreground/60">
+            <CheckCircle className="w-3 h-3" />
+            {debt.paidCount} paid
+          </span>
         )}
       </div>
+
+      {/* Top expense preview */}
+      {debt.items.length > 0 && !isPaid && (
+        <div className="mt-2 pl-10 text-xs text-muted-foreground truncate">
+          • {debt.items[0].description}
+          {debt.items.length > 1 && ` +${debt.items.length - 1} more`}
+        </div>
+      )}
     </div>
   );
 });
@@ -113,107 +109,94 @@ interface SettlementsListProps {
 }
 
 export function SettlementsList({ teamId, refreshKey }: SettlementsListProps) {
-  const [markingId, setMarkingId] = useState<string | null>(null);
-  const observerRef = useRef<IntersectionObserver | null>(null);
-  const loadMoreRef = useRef<HTMLDivElement>(null);
-
   const {
     settlements,
     isLoading,
-    isLoadingMore,
-    hasMore,
-    loadMore,
     mutate
   } = useTeamSettlements(teamId);
 
-  // Re-fetch when refreshKey changes
   useEffect(() => {
     if (refreshKey) {
       mutate();
     }
   }, [refreshKey, mutate]);
 
-  // Infinite scroll observer
-  const handleObserver = useCallback((entries: IntersectionObserverEntry[]) => {
-    const target = entries[0];
-    if (target.isIntersecting && hasMore && !isLoadingMore) {
-      loadMore();
-    }
-  }, [hasMore, isLoadingMore, loadMore]);
+  // Group by person pairs with status breakdown
+  const { debtRelationships, stats } = useMemo(() => {
+    const relationshipMap = new Map<string, DebtRelationship>();
+    let totalPending = 0;
+    let totalPaid = 0;
+    let totalUnconfirmed = 0;
 
-  useEffect(() => {
-    const element = loadMoreRef.current;
-    if (!element) return;
+    settlements.forEach((s) => {
+      const key = `${s.owed_by}|${s.owed_to}`;
+      const existing = relationshipMap.get(key);
 
-    observerRef.current = new IntersectionObserver(handleObserver, {
-      threshold: 0.1,
-      rootMargin: '100px',
-    });
-    observerRef.current.observe(element);
-
-    return () => {
-      if (observerRef.current) {
-        observerRef.current.disconnect();
-      }
-    };
-  }, [handleObserver]);
-
-  const handleMarkAsPaid = async (settlementId: string) => {
-    setMarkingId(settlementId);
-
-    // Optimistic update - immediately update status in UI
-    mutate(
-      (current) => {
-        if (!current) return current;
-        return current.map(page => ({
-          ...page,
-          settlements: page.settlements.map((s: { id: string; status: string }) =>
-            s.id === settlementId ? { ...s, status: 'unconfirmed' } : s
-          )
-        }));
-      },
-      { revalidate: false }
-    );
-
-    try {
-      const result = await markSettlementAsPaid(settlementId);
-      if (result.error) {
-        // Rollback on error
-        mutate();
-        toast.error(result.error);
+      if (existing) {
+        existing.totalAmount += s.amount;
+        if (s.status === 'paid') existing.paidCount += 1;
+        else if (s.status === 'unconfirmed') existing.unconfirmedCount += 1;
+        else existing.pendingCount += 1;
+        existing.items.push({
+          description: s.expense_description,
+          amount: s.amount,
+          status: s.status
+        });
       } else {
-        toast.success("Payment submitted!");
-        // Revalidate for consistency
-        mutate();
+        relationshipMap.set(key, {
+          fromPerson: s.owed_by,
+          toPerson: s.owed_to,
+          totalAmount: s.amount,
+          paidCount: s.status === 'paid' ? 1 : 0,
+          pendingCount: s.status === 'pending' ? 1 : 0,
+          unconfirmedCount: s.status === 'unconfirmed' ? 1 : 0,
+          items: [{
+            description: s.expense_description,
+            amount: s.amount,
+            status: s.status
+          }]
+        });
       }
-    } catch {
-      // Rollback on exception
-      mutate();
-      toast.error("Failed to mark as paid");
-    } finally {
-      setMarkingId(null);
-    }
-  };
+
+      if (s.status === 'paid') totalPaid += 1;
+      else if (s.status === 'unconfirmed') totalUnconfirmed += 1;
+      else totalPending += 1;
+    });
+
+    // Sort by pending first, then by amount
+    const relationships = Array.from(relationshipMap.values())
+      .sort((a, b) => {
+        // Active (has pending/unconfirmed) first
+        const aActive = a.pendingCount + a.unconfirmedCount;
+        const bActive = b.pendingCount + b.unconfirmedCount;
+        if (aActive > 0 && bActive === 0) return -1;
+        if (bActive > 0 && aActive === 0) return 1;
+        return b.totalAmount - a.totalAmount;
+      });
+
+    return {
+      debtRelationships: relationships,
+      stats: { totalPending, totalPaid, totalUnconfirmed, total: totalPending + totalPaid + totalUnconfirmed }
+    };
+  }, [settlements]);
 
   if (isLoading) {
     return (
       <Card>
-        <CardHeader>
-          <CardTitle>Settlements</CardTitle>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Settlements</CardTitle>
           <CardDescription>Who owes whom</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {[...Array(2)].map((_, i) => (
-            <div key={i} className="p-4 border border-border rounded-lg">
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <Skeleton className="h-4 w-1/2" />
-                  <Skeleton className="h-5 w-16" />
-                </div>
-                <div className="flex justify-between items-center">
-                  <Skeleton className="h-6 w-20" />
-                  <Skeleton className="h-8 w-24" />
-                </div>
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="p-3 rounded-lg border">
+              <div className="flex items-center gap-3">
+                <Skeleton className="h-8 w-8 rounded-full" />
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-4 w-4" />
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-8 w-8 rounded-full" />
+                <Skeleton className="h-5 w-16 ml-auto" />
               </div>
             </div>
           ))}
@@ -222,42 +205,77 @@ export function SettlementsList({ teamId, refreshKey }: SettlementsListProps) {
     );
   }
 
+  const hasSettlements = debtRelationships.length > 0;
+  const activeRelationships = debtRelationships.filter(d => d.pendingCount > 0 || d.unconfirmedCount > 0);
+
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Settlements</CardTitle>
-        <CardDescription>Who owes whom</CardDescription>
+      <CardHeader className="pb-3 border-b">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-base">Settlements</CardTitle>
+            <CardDescription>Who owes whom</CardDescription>
+          </div>
+          {hasSettlements && (
+            <Link href="/dashboard/payments">
+              <Button variant="outline" size="sm" className="text-xs h-7 gap-1">
+                Details <ChevronRight className="w-3 h-3" />
+              </Button>
+            </Link>
+          )}
+        </div>
       </CardHeader>
-      <CardContent className="space-y-3">
-        {settlements.length === 0 ? (
+
+      <CardContent className="pt-4 space-y-3">
+        {!hasSettlements ? (
           <div className="text-center py-8">
-            <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-4" />
-            <p className="text-muted-foreground font-medium">All settled up!</p>
+            <CheckCircle className="w-10 h-10 text-foreground/30 mx-auto mb-3" />
+            <p className="font-medium">All Settled</p>
             <p className="text-sm text-muted-foreground mt-1">No pending payments</p>
           </div>
         ) : (
           <>
-            {settlements.map((settlement) => (
-              <SettlementItem
-                key={settlement.id}
-                settlement={settlement}
-                isMarking={markingId === settlement.id}
-                onMarkAsPaid={handleMarkAsPaid}
-              />
-            ))}
-
-            {/* Infinite scroll trigger */}
-            <div ref={loadMoreRef} className="py-2 flex justify-center">
-              {isLoadingMore && (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span className="text-sm">Loading more...</span>
-                </div>
-              )}
-              {!hasMore && settlements.length > 0 && (
-                <p className="text-xs text-muted-foreground">All settlements loaded</p>
-              )}
+            {/* Quick stats bar */}
+            <div className="flex items-center justify-between text-xs border-b pb-3 mb-1">
+              <span className="text-muted-foreground">{debtRelationships.length} relationships</span>
+              <div className="flex items-center gap-3">
+                {stats.totalPending > 0 && (
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 font-normal">
+                    {stats.totalPending} pending
+                  </Badge>
+                )}
+                {stats.totalUnconfirmed > 0 && (
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 font-normal border-yellow-300 text-yellow-700 dark:border-yellow-700 dark:text-yellow-400">
+                    {stats.totalUnconfirmed} awaiting
+                  </Badge>
+                )}
+                {stats.totalPaid > 0 && (
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 font-normal text-muted-foreground">
+                    {stats.totalPaid} paid
+                  </Badge>
+                )}
+              </div>
             </div>
+
+            {/* Debt Relationships - show active ones first, limit to 4 */}
+            <div className="space-y-2">
+              {debtRelationships.slice(0, 4).map((debt) => (
+                <DebtRow key={`${debt.fromPerson}-${debt.toPerson}`} debt={debt} />
+              ))}
+            </div>
+
+            {debtRelationships.length > 4 && (
+              <p className="text-xs text-center text-muted-foreground pt-1">
+                +{debtRelationships.length - 4} more
+              </p>
+            )}
+
+            {/* CTA */}
+            <Link href="/dashboard/payments" className="block pt-2">
+              <Button variant="outline" className="w-full">
+                Manage Payments
+              </Button>
+            </Link>
           </>
         )}
       </CardContent>

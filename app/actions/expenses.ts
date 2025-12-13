@@ -16,6 +16,7 @@ interface CreateExpenseInput {
     amount: number;
     category: string;
     teamId: string;
+    note?: string;
 }
 
 interface PaginationParams {
@@ -74,6 +75,7 @@ export async function createExpense(input: CreateExpenseInput) {
                     currency: "PHP",
                     category: input.category,
                     team_id: input.teamId,
+                    note: input.note || null,
                 },
             });
 
@@ -145,6 +147,7 @@ interface CreateMonthlyExpenseInput {
     teamId: string;
     category: string;
     deadlineDay: number;      // Day of month for deadline (1-31)
+    note?: string;
 }
 
 // Helper function to round UP for exact division (no decimals)
@@ -222,6 +225,7 @@ export async function createMonthlyExpense(input: CreateMonthlyExpenseInput) {
                     is_monthly: true,
                     total_months: input.numberOfMonths,
                     deadline_day: input.deadlineDay,
+                    note: input.note || null,
                 },
             });
 
@@ -244,6 +248,7 @@ export async function createMonthlyExpense(input: CreateMonthlyExpenseInput) {
                         parent_expense_id: parentExpense.id,
                         deadline: deadline,
                         deadline_day: input.deadlineDay,
+                        note: input.note || null,
                     },
                 });
 
@@ -637,6 +642,104 @@ export async function deleteExpense(expenseId: string) {
     } catch (error) {
         console.error("Error deleting expense:", error);
         return { error: "Failed to delete expense" };
+    }
+}
+
+// Interface for updating expense
+interface UpdateExpenseInput {
+    expenseId: string;
+    description?: string;
+    note?: string;
+}
+
+// Update expense - admins can edit any team expense, owners can edit their own
+export async function updateExpense(input: UpdateExpenseInput) {
+    try {
+        const user = await currentUser();
+        if (!user) {
+            return { error: "Not authenticated" };
+        }
+
+        // Get expense with team info
+        const expense = await prisma.expense.findUnique({
+            where: { id: input.expenseId, deleted_at: null },
+            select: {
+                id: true,
+                description: true,
+                note: true,
+                paid_by: true,
+                team_id: true,
+            },
+        });
+
+        if (!expense) {
+            return { error: "Expense not found" };
+        }
+
+        if (!expense.team_id) {
+            return { error: "Expense is not associated with a team" };
+        }
+
+        // Check permissions: user must be admin OR the owner of the expense
+        const membership = await prisma.teamMember.findUnique({
+            where: {
+                team_id_user_id: {
+                    team_id: expense.team_id,
+                    user_id: user.id,
+                },
+            },
+            select: { role: true },
+        });
+
+        if (!membership) {
+            return { error: "Not a member of this team" };
+        }
+
+        const isAdmin = membership.role === "ADMIN";
+        const isOwner = expense.paid_by === user.id;
+
+        if (!isAdmin && !isOwner) {
+            return { error: "You can only edit expenses you created" };
+        }
+
+        // Build update data
+        const updateData: { description?: string; note?: string | null } = {};
+        if (input.description !== undefined) {
+            updateData.description = input.description;
+        }
+        if (input.note !== undefined) {
+            updateData.note = input.note || null;
+        }
+
+        // Update expense
+        const updatedExpense = await prisma.$transaction(async (tx) => {
+            const updated = await tx.expense.update({
+                where: { id: input.expenseId },
+                data: updateData,
+            });
+
+            // Log activity
+            await tx.activityLog.create({
+                data: {
+                    team_id: expense.team_id!,
+                    user_id: user.id,
+                    action: "UPDATED_EXPENSE",
+                    details: `Updated expense '${expense.description}'${input.description ? ` to '${input.description}'` : ''}`,
+                },
+            });
+
+            return updated;
+        });
+
+        // Invalidate cache
+        await invalidateTeamCache(expense.team_id, user.id);
+        revalidatePath("/dashboard");
+        revalidatePath(`/dashboard/expenses/${input.expenseId}`);
+
+        return { success: true, expense: updatedExpense };
+    } catch (error) {
+        console.error("Error updating expense:", error);
+        return { error: "Failed to update expense" };
     }
 }
 

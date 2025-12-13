@@ -11,6 +11,9 @@ import {
     XCircle, AlertCircle, CalendarDays, Users, Wallet
 } from "lucide-react";
 import { getExpenseById } from "@/app/actions/expenses";
+import { useTeam } from "@/components/dashboard/team-provider";
+import { EditExpenseDialog } from "@/components/dashboard/edit-expense-dialog";
+import { useUser } from "@clerk/nextjs";
 
 // Status badge component
 function StatusBadge({ status }: { status: string }) {
@@ -60,6 +63,13 @@ export default function ExpenseDetailPage() {
     const [expense, setExpense] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const { selectedTeam } = useTeam();
+    const { user } = useUser();
+
+    // Check if current user can edit this expense
+    const canEdit = expense && user && (
+        selectedTeam?.role === 'admin' || expense.paid_by === user.id
+    );
 
     useEffect(() => {
         async function loadExpense() {
@@ -147,6 +157,14 @@ export default function ExpenseDetailPage() {
                         })}
                     </p>
                 </div>
+                {canEdit && (
+                    <EditExpenseDialog
+                        expenseId={expense.id}
+                        currentDescription={expense.description}
+                        currentNote={expense.note}
+                        onExpenseUpdated={() => window.location.reload()}
+                    />
+                )}
             </div>
 
             <div className="grid gap-6 lg:grid-cols-3">
@@ -201,6 +219,12 @@ export default function ExpenseDetailPage() {
                                             </div>
                                         </div>
                                     )}
+                                    {expense.note && (
+                                        <div className="mt-4 pt-4 border-t">
+                                            <p className="text-sm text-muted-foreground mb-1">Note</p>
+                                            <p className="text-sm text-foreground">{expense.note}</p>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
@@ -216,7 +240,7 @@ export default function ExpenseDetailPage() {
                                     <div className="h-3 bg-muted rounded-full overflow-hidden">
                                         <div
                                             className={`h-full transition-all duration-500 rounded-full ${paymentPercentage === 100 ? 'bg-green-500' :
-                                                    paymentPercentage > 50 ? 'bg-yellow-500' : 'bg-orange-500'
+                                                paymentPercentage > 50 ? 'bg-yellow-500' : 'bg-orange-500'
                                                 }`}
                                             style={{ width: `${paymentPercentage}%` }}
                                         />
