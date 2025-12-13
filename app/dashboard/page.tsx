@@ -16,7 +16,8 @@ import { AddExpenseDialog } from "@/components/dashboard/add-expense-dialog";
 import { ExpenseList } from "@/components/dashboard/expense-list";
 import { SettlementsList } from "@/components/dashboard/settlements-list";
 import { useTeam } from "@/components/dashboard/team-provider";
-import { useDashboardData } from "@/lib/hooks/use-dashboard-data";
+import { useDashboardData, useTeamMembers } from "@/lib/hooks/use-dashboard-data";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 export default function DashboardPage() {
   const { user, isLoaded } = useUser();
@@ -35,6 +36,9 @@ export default function DashboardPage() {
   const { data: dashboardData, isLoading: dashboardLoading, mutate: mutateDashboard } = useDashboardData(selectedTeam?.id || null);
   const balances = dashboardData?.balances || { youOwe: 0, owedToYou: 0, youOweCount: 0, owedToYouCount: 0 };
   const balancesLoading = dashboardLoading;
+
+  // Fetch team members for display
+  const { members, isLoading: membersLoading } = useTeamMembers(selectedTeam?.id || null);
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -196,15 +200,56 @@ export default function DashboardPage() {
                 <SettlementsList teamId={selectedTeam.id} refreshKey={refreshKey} />
               </div>
               <Card>
-                <CardHeader>
+                <CardHeader className="pb-3">
                   <CardTitle>Team Members</CardTitle>
                   <CardDescription>{selectedTeam.memberCount} members in this team</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
-                    <Users className="w-8 h-8 mb-2 opacity-30" />
-                    <p className="text-sm">Share code: <code className="bg-muted px-2 py-0.5 rounded font-mono">{selectedTeam.code}</code></p>
-                  </div>
+                  {membersLoading ? (
+                    <div className="space-y-3">
+                      {[...Array(3)].map((_, i) => (
+                        <div key={i} className="flex items-center gap-3">
+                          <Skeleton className="h-9 w-9 rounded-full" />
+                          <div className="space-y-1.5">
+                            <Skeleton className="h-4 w-24" />
+                            <Skeleton className="h-3 w-32" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : members.length > 0 ? (
+                    <div className="space-y-3">
+                      {members.map((member) => (
+                        <div key={member.id} className="flex items-center gap-3">
+                          <Avatar className="h-9 w-9">
+                            <AvatarFallback className="bg-primary/10 text-primary text-sm font-medium">
+                              {member.name.split(" ").map((n) => n[0]).join("").substring(0, 2).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{member.name}</p>
+                            <p className="text-xs text-muted-foreground truncate">{member.email}</p>
+                          </div>
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${member.role === "ADMIN"
+                              ? "bg-primary/10 text-primary"
+                              : "bg-muted text-muted-foreground"
+                            }`}>
+                            {member.role}
+                          </span>
+                        </div>
+                      ))}
+                      <div className="pt-3 border-t">
+                        <p className="text-xs text-muted-foreground text-center">
+                          Share code: <code className="bg-muted px-2 py-0.5 rounded font-mono">{selectedTeam.code}</code>
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-6 text-muted-foreground">
+                      <Users className="w-8 h-8 mb-2 opacity-30" />
+                      <p className="text-sm">Share code: <code className="bg-muted px-2 py-0.5 rounded font-mono">{selectedTeam.code}</code></p>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
