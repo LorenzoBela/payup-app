@@ -191,7 +191,7 @@ export function TeamDetailsClient({ team }: TeamDetailsClientProps) {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-4">
                     <Link href="/admin/teams">
                         <Button variant="ghost" size="icon">
@@ -199,7 +199,7 @@ export function TeamDetailsClient({ team }: TeamDetailsClientProps) {
                         </Button>
                     </Link>
                     <div>
-                        <h1 className="text-3xl font-bold tracking-tight">{team.name}</h1>
+                        <h1 className="text-xl sm:text-3xl font-bold tracking-tight">{team.name}</h1>
                         <div className="flex items-center gap-2 mt-1">
                             <code className="bg-muted px-2 py-0.5 rounded text-sm font-mono">
                                 {team.code}
@@ -293,7 +293,7 @@ export function TeamDetailsClient({ team }: TeamDetailsClientProps) {
 
             {/* Members Section */}
             <Card>
-                <CardHeader className="flex flex-row items-center justify-between">
+                <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                         <CardTitle className="flex items-center gap-2">
                             <Users className="h-5 w-5" />
@@ -351,8 +351,8 @@ export function TeamDetailsClient({ team }: TeamDetailsClientProps) {
                                             <div
                                                 key={user.id}
                                                 className={`flex items-center justify-between p-3 rounded-md border cursor-pointer transition-colors ${selectedUser?.id === user.id
-                                                        ? "border-primary bg-primary/5"
-                                                        : "hover:bg-muted"
+                                                    ? "border-primary bg-primary/5"
+                                                    : "hover:bg-muted"
                                                     }`}
                                                 onClick={() => setSelectedUser(user)}
                                             >
@@ -434,7 +434,7 @@ export function TeamDetailsClient({ team }: TeamDetailsClientProps) {
                 </CardHeader>
                 <CardContent>
                     {team.members.length > 0 ? (
-                        <div className="rounded-md border">
+                        <div className="rounded-md border overflow-x-auto">
                             <Table>
                                 <TableHeader>
                                     <TableRow>
@@ -520,7 +520,7 @@ export function TeamDetailsClient({ team }: TeamDetailsClientProps) {
                 </CardHeader>
                 <CardContent>
                     {team.recentExpenses.length > 0 ? (
-                        <div className="rounded-md border">
+                        <div className="rounded-md border overflow-x-auto">
                             <Table>
                                 <TableHeader>
                                     <TableRow>

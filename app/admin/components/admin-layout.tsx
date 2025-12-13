@@ -15,7 +15,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     return (
         <div className="min-h-screen bg-background">
             <AdminSidebar collapsed={collapsed} onCollapse={setCollapsed} />
-            
+
             <div
                 className={cn(
                     "transition-all duration-300",
@@ -23,7 +23,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                 )}
             >
                 <AdminHeader />
-                <main className="p-4 md:p-6">
+                <main className="p-3 sm:p-4 md:p-6">
                     {children}
                 </main>
             </div>

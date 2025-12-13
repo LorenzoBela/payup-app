@@ -176,12 +176,12 @@ export function AdvancedStatsOverview({ stats }: AdvancedStatsOverviewProps) {
                 </Card>
 
                 {/* Settlement Status Breakdown */}
-                <Card className="lg:col-span-2">
+                <Card className="md:col-span-2 lg:col-span-2">
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                         <CardTitle className="text-sm font-medium">Settlement Status</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="flex items-center gap-4">
+                        <div className="flex flex-wrap items-center gap-4">
                             <div className="flex items-center gap-2">
                                 <div className="p-1.5 rounded bg-yellow-500/10">
                                     <Clock className="h-3 w-3 text-yellow-500" />
@@ -191,7 +191,7 @@ export function AdvancedStatsOverview({ stats }: AdvancedStatsOverviewProps) {
                                     <p className="text-xs text-muted-foreground">Pending</p>
                                 </div>
                             </div>
-                            <div className="h-8 w-px bg-border" />
+                            <div className="hidden sm:block h-8 w-px bg-border" />
                             <div className="flex items-center gap-2">
                                 <div className="p-1.5 rounded bg-orange-500/10">
                                     <AlertCircle className="h-3 w-3 text-orange-500" />
@@ -201,7 +201,7 @@ export function AdvancedStatsOverview({ stats }: AdvancedStatsOverviewProps) {
                                     <p className="text-xs text-muted-foreground">Unconfirmed</p>
                                 </div>
                             </div>
-                            <div className="h-8 w-px bg-border" />
+                            <div className="hidden sm:block h-8 w-px bg-border" />
                             <div className="flex items-center gap-2">
                                 <div className="p-1.5 rounded bg-green-500/10">
                                     <CheckCircle className="h-3 w-3 text-green-500" />

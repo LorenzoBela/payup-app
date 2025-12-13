@@ -111,7 +111,7 @@ export default function AdminActivityPage() {
                                                     </Badge>
                                                 </TableCell>
                                                 <TableCell>
-                                                    <p className="text-sm max-w-[300px] truncate">
+                                                    <p className="text-sm max-w-[150px] sm:max-w-[300px] truncate">
                                                         {log.details}
                                                     </p>
                                                 </TableCell>
@@ -156,7 +156,7 @@ export default function AdminActivityPage() {
                                         disabled={page <= 1}
                                     >
                                         <ChevronLeft className="h-4 w-4" />
-                                        Previous
+                                        <span className="hidden sm:inline ml-1">Previous</span>
                                     </Button>
                                     <Button
                                         variant="outline"
@@ -164,7 +164,7 @@ export default function AdminActivityPage() {
                                         onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                                         disabled={page >= totalPages}
                                     >
-                                        Next
+                                        <span className="hidden sm:inline mr-1">Next</span>
                                         <ChevronRight className="h-4 w-4" />
                                     </Button>
                                 </div>

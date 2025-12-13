@@ -111,7 +111,7 @@ export function UserDetailsClient({ user }: UserDetailsClientProps) {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-4">
                     <Link href="/admin/users">
                         <Button variant="ghost" size="icon">
@@ -120,7 +120,7 @@ export function UserDetailsClient({ user }: UserDetailsClientProps) {
                     </Link>
                     <div>
                         <div className="flex items-center gap-2">
-                            <h1 className="text-3xl font-bold tracking-tight">{user.name}</h1>
+                            <h1 className="text-xl sm:text-3xl font-bold tracking-tight">{user.name}</h1>
                             {isSuperAdmin && (
                                 <Badge variant="destructive" className="gap-1">
                                     <Shield className="h-3 w-3" />
@@ -232,7 +232,7 @@ export function UserDetailsClient({ user }: UserDetailsClientProps) {
                 </CardHeader>
                 <CardContent>
                     {user.teams.length > 0 ? (
-                        <div className="rounded-md border">
+                        <div className="rounded-md border overflow-x-auto">
                             <Table>
                                 <TableHeader>
                                     <TableRow>

@@ -131,7 +131,7 @@ export default function AdminReportsPage() {
                 <div className="flex items-center gap-2">
                     <span className="text-sm text-muted-foreground">Date Range:</span>
                     <Select value={dateRange} onValueChange={setDateRange}>
-                        <SelectTrigger className="w-[140px]">
+                        <SelectTrigger className="w-full sm:w-[140px]">
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -258,7 +258,7 @@ export default function AdminReportsPage() {
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <div className="grid grid-cols-2 gap-4 mb-6">
+                        <div className="grid grid-cols-1 xs:grid-cols-2 gap-4 mb-6">
                             <div className="flex items-center gap-3 p-4 rounded-lg bg-green-500/10">
                                 <CheckCircle className="h-8 w-8 text-green-500" />
                                 <div>
@@ -325,7 +325,7 @@ export default function AdminReportsPage() {
 
                                     return (
                                         <div key={trend.date} className="flex items-center gap-3">
-                                            <span className="text-xs text-muted-foreground w-16">
+                                            <span className="text-xs text-muted-foreground w-12 sm:w-16">
                                                 {formattedDate}
                                             </span>
                                             <div className="flex-1 h-6 bg-muted rounded overflow-hidden">

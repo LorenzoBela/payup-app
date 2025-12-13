@@ -353,7 +353,7 @@ export default function AdminPerformancePage() {
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div className="text-center p-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
                             <p className="text-3xl font-bold text-blue-500">
                                 {serverMetrics.recentActivity.last5Minutes}
@@ -447,7 +447,7 @@ export default function AdminPerformancePage() {
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <div className="grid grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                         <div className="flex items-center gap-4">
                             <div className="p-3 rounded-lg bg-yellow-500/10">
                                 <AlertTriangle className="h-6 w-6 text-yellow-500" />
@@ -528,10 +528,10 @@ export default function AdminPerformancePage() {
                         />
                         <div className="flex items-center gap-2 text-sm">
                             <div className={`w-2 h-2 rounded-full ${getMemoryStatus(clientMetrics.jsHeapUsed, clientMetrics.jsHeapTotal) === "good"
-                                    ? "bg-green-500"
-                                    : getMemoryStatus(clientMetrics.jsHeapUsed, clientMetrics.jsHeapTotal) === "warning"
-                                        ? "bg-yellow-500"
-                                        : "bg-red-500"
+                                ? "bg-green-500"
+                                : getMemoryStatus(clientMetrics.jsHeapUsed, clientMetrics.jsHeapTotal) === "warning"
+                                    ? "bg-yellow-500"
+                                    : "bg-red-500"
                                 }`} />
                             <span className="text-muted-foreground">
                                 {Math.round((clientMetrics.jsHeapUsed / clientMetrics.jsHeapTotal) * 100)}% utilization

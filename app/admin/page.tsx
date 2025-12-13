@@ -26,7 +26,7 @@ export default async function AdminDashboard() {
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Admin Dashboard</h1>
+                    <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight">Admin Dashboard</h1>
                     <p className="text-muted-foreground">
                         System-wide overview and administrative controls
                     </p>
@@ -45,55 +45,55 @@ export default async function AdminDashboard() {
             <AdvancedStatsOverview stats={stats} />
 
             {/* Quick Actions & Recent Activity Row */}
-            <div className="grid gap-6 lg:grid-cols-3">
+            <div className="grid gap-4 grid-cols-1 md:grid-cols-2 overflow-hidden">
                 {/* Quick Actions */}
-                <Card>
-                    <CardHeader>
+                <Card className="overflow-hidden">
+                    <CardHeader className="p-4 sm:p-6">
                         <CardTitle>Quick Actions</CardTitle>
                         <CardDescription>Navigate to management pages</CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-3">
+                    <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0 space-y-2 sm:space-y-3">
                         <Link href="/admin/users" className="block">
-                            <Button variant="outline" className="w-full justify-between">
+                            <Button variant="outline" className="w-full justify-between text-sm min-w-0">
                                 <span className="flex items-center gap-2">
                                     <Users className="h-4 w-4" />
-                                    Manage Users
+                                    <span className="truncate">Manage Users</span>
                                 </span>
                                 <ArrowRight className="h-4 w-4" />
                             </Button>
                         </Link>
                         <Link href="/admin/teams" className="block">
-                            <Button variant="outline" className="w-full justify-between">
+                            <Button variant="outline" className="w-full justify-between text-sm min-w-0">
                                 <span className="flex items-center gap-2">
                                     <Building2 className="h-4 w-4" />
-                                    Manage Teams
+                                    <span className="truncate">Manage Teams</span>
                                 </span>
                                 <ArrowRight className="h-4 w-4" />
                             </Button>
                         </Link>
                         <Link href="/admin/transactions" className="block">
-                            <Button variant="outline" className="w-full justify-between">
+                            <Button variant="outline" className="w-full justify-between text-sm min-w-0">
                                 <span className="flex items-center gap-2">
                                     <Receipt className="h-4 w-4" />
-                                    View Transactions
+                                    <span className="truncate">View Transactions</span>
                                 </span>
                                 <ArrowRight className="h-4 w-4" />
                             </Button>
                         </Link>
                         <Link href="/admin/activity" className="block">
-                            <Button variant="outline" className="w-full justify-between">
+                            <Button variant="outline" className="w-full justify-between text-sm min-w-0">
                                 <span className="flex items-center gap-2">
                                     <Activity className="h-4 w-4" />
-                                    Activity Logs
+                                    <span className="truncate">Activity Logs</span>
                                 </span>
                                 <ArrowRight className="h-4 w-4" />
                             </Button>
                         </Link>
                         <Link href="/admin/reports" className="block">
-                            <Button variant="outline" className="w-full justify-between">
+                            <Button variant="outline" className="w-full justify-between text-sm min-w-0">
                                 <span className="flex items-center gap-2">
                                     <BarChart3 className="h-4 w-4" />
-                                    View Reports
+                                    <span className="truncate">View Reports</span>
                                 </span>
                                 <ArrowRight className="h-4 w-4" />
                             </Button>
@@ -102,8 +102,8 @@ export default async function AdminDashboard() {
                 </Card>
 
                 {/* Recent Activity */}
-                <Card className="lg:col-span-2">
-                    <CardHeader className="flex flex-row items-center justify-between">
+                <Card className="overflow-hidden">
+                    <CardHeader className="p-4 sm:p-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                             <CardTitle>Recent Activity</CardTitle>
                             <CardDescription>Latest actions across all teams</CardDescription>
@@ -115,16 +115,16 @@ export default async function AdminDashboard() {
                             </Button>
                         </Link>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
                         {recentActivity.length > 0 ? (
                             <div className="space-y-4">
                                 {recentActivity.map((activity) => (
                                     <div
                                         key={activity.id}
-                                        className="flex items-start justify-between gap-4 pb-4 border-b border-border last:border-0 last:pb-0"
+                                        className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4 pb-4 border-b border-border last:border-0 last:pb-0"
                                     >
                                         <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2 mb-1">
+                                            <div className="flex flex-wrap items-center gap-2 mb-1">
                                                 <Badge variant="outline" className="text-xs">
                                                     {activity.action.replace(/_/g, " ")}
                                                 </Badge>
@@ -139,7 +139,7 @@ export default async function AdminDashboard() {
                                                 by {activity.userName}
                                             </p>
                                         </div>
-                                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                        <span className="text-xs text-muted-foreground whitespace-nowrap self-start sm:self-auto">
                                             {formatDistanceToNow(new Date(activity.createdAt), { addSuffix: true })}
                                         </span>
                                     </div>

@@ -138,7 +138,7 @@ export function MobileAdminSidebar() {
                     <span className="sr-only">Toggle admin menu</span>
                 </Button>
             </SheetTrigger>
-            <SheetContent side="left" className="p-0 w-[240px]">
+            <SheetContent side="left" className="p-0 w-[280px] sm:w-[240px]">
                 <SheetTitle className="sr-only">Admin Navigation Menu</SheetTitle>
                 <SheetDescription className="sr-only">
                     Admin navigation sidebar to access users, teams, transactions, and activity logs.

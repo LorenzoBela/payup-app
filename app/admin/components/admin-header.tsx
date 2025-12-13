@@ -46,11 +46,11 @@ export function AdminHeader() {
                     </div>
                 </div>
 
-                {/* Date & Time Display */}
-                <div className="hidden md:flex items-center gap-4 text-sm">
+                {/* Date & Time Display - Compact on mobile, full on desktop */}
+                <div className="hidden sm:flex items-center gap-2 sm:gap-4 text-sm">
                     {dateTime && (
                         <>
-                            <div className="flex items-center gap-2 text-muted-foreground">
+                            <div className="hidden md:flex items-center gap-2 text-muted-foreground">
                                 <Calendar className="h-4 w-4" />
                                 <span className="font-medium">{dateTime.day}</span>
                                 <span>•</span>
@@ -58,7 +58,7 @@ export function AdminHeader() {
                             </div>
                             <div className="flex items-center gap-2 text-muted-foreground">
                                 <Clock className="h-4 w-4" />
-                                <span className="font-mono">{dateTime.time}</span>
+                                <span className="font-mono text-xs sm:text-sm">{dateTime.time}</span>
                             </div>
                         </>
                     )}

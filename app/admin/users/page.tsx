@@ -160,7 +160,7 @@ export default function AdminUsersPage() {
                             />
                         </div>
                         <Select value={roleFilter} onValueChange={setRoleFilter}>
-                            <SelectTrigger className="w-[180px]">
+                            <SelectTrigger className="w-full sm:w-[180px]">
                                 <SelectValue placeholder="Filter by role" />
                             </SelectTrigger>
                             <SelectContent>
@@ -275,7 +275,7 @@ export default function AdminUsersPage() {
                                         disabled={page <= 1}
                                     >
                                         <ChevronLeft className="h-4 w-4" />
-                                        Previous
+                                        <span className="hidden sm:inline ml-1">Previous</span>
                                     </Button>
                                     <Button
                                         variant="outline"
@@ -283,7 +283,7 @@ export default function AdminUsersPage() {
                                         onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                                         disabled={page >= totalPages}
                                     >
-                                        Next
+                                        <span className="hidden sm:inline mr-1">Next</span>
                                         <ChevronRight className="h-4 w-4" />
                                     </Button>
                                 </div>
