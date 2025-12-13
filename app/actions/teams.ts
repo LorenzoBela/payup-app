@@ -105,12 +105,10 @@ export async function joinTeam(code: string) {
             const newMemberCount = team.members.length + 1;
 
             // 3. Find all pending expenses for this team that need to be recalculated
-            // Only recalculate expenses where the new member wasn't the one who paid
             const pendingExpenses = await tx.expense.findMany({
                 where: {
                     team_id: team.id,
                     deleted_at: null,
-                    paid_by: { not: user.id }, // Only expenses where new member owes money
                     // Only consider expenses that still have pending settlements
                     settlements: {
                         some: {
