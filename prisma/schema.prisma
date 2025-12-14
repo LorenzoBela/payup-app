@@ -108,14 +108,15 @@ enum UserRole {
 }
 
 model Team {
-  id         String        @id @default(uuid())
-  name       String
-  code       String        @unique
-  created_at DateTime      @default(now())
-  updated_at DateTime      @updatedAt
-  members    TeamMember[]
-  expenses   Expense[]
-  activities ActivityLog[]
+  id          String        @id @default(uuid())
+  name        String
+  code        String        @unique
+  created_at  DateTime      @default(now())
+  updated_at  DateTime      @updatedAt
+  archived_at DateTime?     // For archiving teams instead of deleting
+  members     TeamMember[]
+  expenses    Expense[]
+  activities  ActivityLog[]
 
   @@map("teams")
 }

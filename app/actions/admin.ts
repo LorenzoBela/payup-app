@@ -1371,3 +1371,668 @@ export async function adminAddUserToTeam(
         return { success: false, error: "Failed to add user to team" };
     }
 }
+
+// ============================================================================
+// HIGH PRIORITY ADMIN FEATURES
+// ============================================================================
+
+// --- USER MANAGEMENT ---
+
+/**
+ * Get all soft-deleted users for restore functionality.
+ * Requires SuperAdmin privileges.
+ */
+export async function getDeletedUsers() {
+    await requireSuperAdmin();
+
+    try {
+        const deletedUsers = await prisma.user.findMany({
+            where: { deleted_at: { not: null } },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+                deleted_at: true,
+                created_at: true,
+            },
+            orderBy: { deleted_at: "desc" },
+        });
+
+        return { success: true, users: deletedUsers };
+    } catch (error) {
+        console.error("Error fetching deleted users:", error);
+        return { success: false, error: "Failed to fetch deleted users", users: [] };
+    }
+}
+
+/**
+ * Restore a soft-deleted user.
+ * Requires SuperAdmin privileges.
+ */
+export async function restoreUser(userId: string) {
+    await requireSuperAdmin();
+
+    try {
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, name: true, deleted_at: true },
+        });
+
+        if (!user) {
+            return { success: false, error: "User not found" };
+        }
+
+        if (!user.deleted_at) {
+            return { success: false, error: "User is not deleted" };
+        }
+
+        await prisma.user.update({
+            where: { id: userId },
+            data: { deleted_at: null },
+        });
+
+        revalidatePath("/admin/users");
+        return { success: true, message: `User "${user.name}" has been restored` };
+    } catch (error) {
+        console.error("Error restoring user:", error);
+        return { success: false, error: "Failed to restore user" };
+    }
+}
+
+/**
+ * Merge two user accounts - transfers all data from source to target.
+ * Requires SuperAdmin privileges.
+ * WARNING: This is irreversible!
+ */
+export async function mergeUsers(sourceUserId: string, targetUserId: string) {
+    await requireSuperAdmin();
+
+    if (sourceUserId === targetUserId) {
+        return { success: false, error: "Cannot merge a user with themselves" };
+    }
+
+    try {
+        const [sourceUser, targetUser] = await Promise.all([
+            prisma.user.findUnique({
+                where: { id: sourceUserId },
+                select: { id: true, name: true, role: true },
+            }),
+            prisma.user.findUnique({
+                where: { id: targetUserId },
+                select: { id: true, name: true, role: true },
+            }),
+        ]);
+
+        if (!sourceUser || !targetUser) {
+            return { success: false, error: "One or both users not found" };
+        }
+
+        if (sourceUser.role === UserRole.SuperAdmin) {
+            return { success: false, error: "Cannot merge a SuperAdmin account" };
+        }
+
+        // Use transaction to ensure atomicity
+        await prisma.$transaction(async (tx) => {
+            // Transfer team memberships (skip duplicates)
+            const sourceMemberships = await tx.teamMember.findMany({
+                where: { user_id: sourceUserId },
+            });
+
+            for (const membership of sourceMemberships) {
+                const existingMembership = await tx.teamMember.findUnique({
+                    where: {
+                        team_id_user_id: {
+                            team_id: membership.team_id,
+                            user_id: targetUserId,
+                        },
+                    },
+                });
+
+                if (!existingMembership) {
+                    // Transfer membership to target
+                    await tx.teamMember.update({
+                        where: { id: membership.id },
+                        data: { user_id: targetUserId },
+                    });
+                } else {
+                    // Delete duplicate membership
+                    await tx.teamMember.delete({
+                        where: { id: membership.id },
+                    });
+                }
+            }
+
+            // Transfer expenses (paid_by)
+            await tx.expense.updateMany({
+                where: { paid_by: sourceUserId },
+                data: { paid_by: targetUserId },
+            });
+
+            // Transfer settlements (owed_by)
+            await tx.settlement.updateMany({
+                where: { owed_by: sourceUserId },
+                data: { owed_by: targetUserId },
+            });
+
+            // Transfer activity logs
+            await tx.activityLog.updateMany({
+                where: { user_id: sourceUserId },
+                data: { user_id: targetUserId },
+            });
+
+            // Soft delete the source user
+            await tx.user.update({
+                where: { id: sourceUserId },
+                data: { deleted_at: new Date() },
+            });
+        });
+
+        revalidatePath("/admin/users");
+        return {
+            success: true,
+            message: `User "${sourceUser.name}" has been merged into "${targetUser.name}"`,
+        };
+    } catch (error) {
+        console.error("Error merging users:", error);
+        return { success: false, error: "Failed to merge users" };
+    }
+}
+
+// --- EXPENSE MANAGEMENT ---
+
+/**
+ * Void/cancel an expense - soft deletes with reason.
+ * Requires SuperAdmin privileges.
+ */
+export async function voidExpense(expenseId: string, reason: string) {
+    await requireSuperAdmin();
+
+    if (!reason || reason.trim().length < 3) {
+        return { success: false, error: "A reason is required to void an expense" };
+    }
+
+    try {
+        const expense = await prisma.expense.findUnique({
+            where: { id: expenseId },
+            include: {
+                team: { select: { id: true, name: true } },
+                settlements: true,
+            },
+        });
+
+        if (!expense) {
+            return { success: false, error: "Expense not found" };
+        }
+
+        if (expense.deleted_at) {
+            return { success: false, error: "Expense is already voided" };
+        }
+
+        await prisma.$transaction(async (tx) => {
+            // Soft delete the expense
+            await tx.expense.update({
+                where: { id: expenseId },
+                data: {
+                    deleted_at: new Date(),
+                    note: expense.note
+                        ? `${expense.note}\n\n[VOIDED: ${reason}]`
+                        : `[VOIDED: ${reason}]`,
+                },
+            });
+
+            // Soft delete all settlements
+            await tx.settlement.updateMany({
+                where: { expense_id: expenseId },
+                data: { deleted_at: new Date() },
+            });
+
+            // Also void child expenses for monthly payments
+            if (!expense.parent_expense_id) {
+                await tx.expense.updateMany({
+                    where: { parent_expense_id: expenseId },
+                    data: { deleted_at: new Date() },
+                });
+                await tx.settlement.updateMany({
+                    where: {
+                        expense: { parent_expense_id: expenseId },
+                    },
+                    data: { deleted_at: new Date() },
+                });
+            }
+        });
+
+        if (expense.team) {
+            await invalidateTeamCache(expense.team.id);
+        }
+        revalidatePath("/admin/transactions");
+
+        return {
+            success: true,
+            message: `Expense "${expense.description}" has been voided`,
+        };
+    } catch (error) {
+        console.error("Error voiding expense:", error);
+        return { success: false, error: "Failed to void expense" };
+    }
+}
+
+/**
+ * Transfer expense ownership to a different payer.
+ * Requires SuperAdmin privileges.
+ */
+export async function transferExpenseOwnership(expenseId: string, newPayerId: string) {
+    await requireSuperAdmin();
+
+    try {
+        const [expense, newPayer] = await Promise.all([
+            prisma.expense.findUnique({
+                where: { id: expenseId },
+                include: {
+                    team: { select: { id: true, members: { select: { user_id: true } } } },
+                    settlements: true,
+                },
+            }),
+            prisma.user.findUnique({
+                where: { id: newPayerId },
+                select: { id: true, name: true, deleted_at: true },
+            }),
+        ]);
+
+        if (!expense) {
+            return { success: false, error: "Expense not found" };
+        }
+
+        if (!newPayer || newPayer.deleted_at) {
+            return { success: false, error: "New payer not found or is deleted" };
+        }
+
+        if (expense.paid_by === newPayerId) {
+            return { success: false, error: "Expense is already paid by this user" };
+        }
+
+        // Check if new payer is a team member
+        if (expense.team && !expense.team.members.some((m) => m.user_id === newPayerId)) {
+            return { success: false, error: "New payer is not a member of the team" };
+        }
+
+        const oldPayerId = expense.paid_by;
+        const memberCount = expense.team?.members.length || 1;
+        const splitAmount = expense.amount / memberCount;
+
+        await prisma.$transaction(async (tx) => {
+            // Update expense payer
+            await tx.expense.update({
+                where: { id: expenseId },
+                data: { paid_by: newPayerId },
+            });
+
+            // Remove settlement for new payer (they don't owe themselves)
+            await tx.settlement.deleteMany({
+                where: { expense_id: expenseId, owed_by: newPayerId },
+            });
+
+            // Check if old payer now needs a settlement
+            const existingOldPayerSettlement = await tx.settlement.findFirst({
+                where: { expense_id: expenseId, owed_by: oldPayerId },
+            });
+
+            if (!existingOldPayerSettlement) {
+                // Create settlement for old payer
+                await tx.settlement.create({
+                    data: {
+                        expense_id: expenseId,
+                        owed_by: oldPayerId,
+                        amount_owed: splitAmount,
+                        status: Status.pending,
+                    },
+                });
+            }
+        });
+
+        if (expense.team) {
+            await invalidateTeamCache(expense.team.id);
+        }
+        revalidatePath("/admin/transactions");
+
+        return {
+            success: true,
+            message: `Expense ownership transferred to "${newPayer.name}"`,
+        };
+    } catch (error) {
+        console.error("Error transferring expense:", error);
+        return { success: false, error: "Failed to transfer expense ownership" };
+    }
+}
+
+/**
+ * Mass approve settlements (mark as paid).
+ * Requires SuperAdmin privileges.
+ */
+export async function massApproveSettlements(settlementIds: string[]) {
+    await requireSuperAdmin();
+
+    if (!settlementIds || settlementIds.length === 0) {
+        return { success: false, error: "No settlements selected" };
+    }
+
+    try {
+        // Verify all settlements exist and are pending
+        const settlements = await prisma.settlement.findMany({
+            where: {
+                id: { in: settlementIds },
+                deleted_at: null,
+            },
+            include: {
+                expense: { select: { team_id: true } },
+            },
+        });
+
+        if (settlements.length !== settlementIds.length) {
+            return { success: false, error: "Some settlements not found" };
+        }
+
+        const alreadyPaid = settlements.filter((s) => s.status === Status.paid);
+        if (alreadyPaid.length > 0) {
+            return { success: false, error: `${alreadyPaid.length} settlement(s) are already paid` };
+        }
+
+        // Update all settlements
+        await prisma.settlement.updateMany({
+            where: { id: { in: settlementIds } },
+            data: {
+                status: Status.paid,
+                paid_at: new Date(),
+            },
+        });
+
+        // Invalidate cache for affected teams
+        const teamIds = [...new Set(settlements.map((s) => s.expense.team_id).filter(Boolean))];
+        for (const teamId of teamIds) {
+            if (teamId) await invalidateTeamCache(teamId);
+        }
+
+        revalidatePath("/admin/transactions");
+        return {
+            success: true,
+            message: `${settlementIds.length} settlement(s) have been approved`,
+        };
+    } catch (error) {
+        console.error("Error mass approving settlements:", error);
+        return { success: false, error: "Failed to approve settlements" };
+    }
+}
+
+// --- TEAM MANAGEMENT ---
+
+/**
+ * Transfer team ownership to a different admin.
+ * Requires SuperAdmin privileges.
+ */
+export async function transferTeamOwnership(teamId: string, newAdminId: string) {
+    await requireSuperAdmin();
+
+    try {
+        const [team, newAdmin] = await Promise.all([
+            prisma.team.findUnique({
+                where: { id: teamId },
+                include: {
+                    members: {
+                        include: { user: { select: { name: true } } },
+                    },
+                },
+            }),
+            prisma.user.findUnique({
+                where: { id: newAdminId },
+                select: { id: true, name: true, deleted_at: true },
+            }),
+        ]);
+
+        if (!team) {
+            return { success: false, error: "Team not found" };
+        }
+
+        if (!newAdmin || newAdmin.deleted_at) {
+            return { success: false, error: "New admin not found or is deleted" };
+        }
+
+        // Check if new admin is a team member
+        const membership = team.members.find((m) => m.user_id === newAdminId);
+        if (!membership) {
+            return { success: false, error: "New admin is not a member of the team" };
+        }
+
+        if (membership.role === TeamRole.ADMIN) {
+            return { success: false, error: "User is already an admin" };
+        }
+
+        await prisma.$transaction(async (tx) => {
+            // Demote all current admins to members
+            await tx.teamMember.updateMany({
+                where: { team_id: teamId, role: TeamRole.ADMIN },
+                data: { role: TeamRole.MEMBER },
+            });
+
+            // Promote new admin
+            await tx.teamMember.update({
+                where: { id: membership.id },
+                data: { role: TeamRole.ADMIN },
+            });
+
+            // Log activity
+            await tx.activityLog.create({
+                data: {
+                    team_id: teamId,
+                    user_id: newAdminId,
+                    action: "OWNERSHIP_TRANSFERRED",
+                    details: `Team ownership transferred to ${newAdmin.name} by admin`,
+                },
+            });
+        });
+
+        await invalidateTeamCache(teamId);
+        revalidatePath(`/admin/teams/${teamId}`);
+
+        return {
+            success: true,
+            message: `Team ownership transferred to "${newAdmin.name}"`,
+        };
+    } catch (error) {
+        console.error("Error transferring team ownership:", error);
+        return { success: false, error: "Failed to transfer team ownership" };
+    }
+}
+
+/**
+ * Archive a team (hide from users but keep data).
+ * Requires SuperAdmin privileges.
+ */
+export async function archiveTeam(teamId: string) {
+    await requireSuperAdmin();
+
+    try {
+        const team = await prisma.team.findUnique({
+            where: { id: teamId },
+            select: { id: true, name: true, archived_at: true },
+        });
+
+        if (!team) {
+            return { success: false, error: "Team not found" };
+        }
+
+        if (team.archived_at) {
+            return { success: false, error: "Team is already archived" };
+        }
+
+        await prisma.team.update({
+            where: { id: teamId },
+            data: { archived_at: new Date() },
+        });
+
+        revalidatePath("/admin/teams");
+        return { success: true, message: `Team "${team.name}" has been archived` };
+    } catch (error) {
+        console.error("Error archiving team:", error);
+        return { success: false, error: "Failed to archive team" };
+    }
+}
+
+/**
+ * Unarchive a team.
+ * Requires SuperAdmin privileges.
+ */
+export async function unarchiveTeam(teamId: string) {
+    await requireSuperAdmin();
+
+    try {
+        const team = await prisma.team.findUnique({
+            where: { id: teamId },
+            select: { id: true, name: true, archived_at: true },
+        });
+
+        if (!team) {
+            return { success: false, error: "Team not found" };
+        }
+
+        if (!team.archived_at) {
+            return { success: false, error: "Team is not archived" };
+        }
+
+        await prisma.team.update({
+            where: { id: teamId },
+            data: { archived_at: null },
+        });
+
+        revalidatePath("/admin/teams");
+        return { success: true, message: `Team "${team.name}" has been restored` };
+    } catch (error) {
+        console.error("Error unarchiving team:", error);
+        return { success: false, error: "Failed to restore team" };
+    }
+}
+
+/**
+ * Get all archived teams.
+ * Requires SuperAdmin privileges.
+ */
+export async function getArchivedTeams() {
+    await requireSuperAdmin();
+
+    try {
+        const archivedTeams = await prisma.team.findMany({
+            where: { archived_at: { not: null } },
+            select: {
+                id: true,
+                name: true,
+                code: true,
+                archived_at: true,
+                created_at: true,
+                _count: {
+                    select: {
+                        members: true,
+                        expenses: true,
+                    },
+                },
+            },
+            orderBy: { archived_at: "desc" },
+        });
+
+        return { success: true, teams: archivedTeams };
+    } catch (error) {
+        console.error("Error fetching archived teams:", error);
+        return { success: false, error: "Failed to fetch archived teams", teams: [] };
+    }
+}
+
+/**
+ * Merge two teams - combines all members and expenses into target team.
+ * Requires SuperAdmin privileges.
+ * WARNING: This is irreversible!
+ */
+export async function mergeTeams(sourceTeamId: string, targetTeamId: string) {
+    await requireSuperAdmin();
+
+    if (sourceTeamId === targetTeamId) {
+        return { success: false, error: "Cannot merge a team with itself" };
+    }
+
+    try {
+        const [sourceTeam, targetTeam] = await Promise.all([
+            prisma.team.findUnique({
+                where: { id: sourceTeamId },
+                include: {
+                    members: true,
+                    expenses: { include: { settlements: true } },
+                    _count: { select: { members: true, expenses: true } },
+                },
+            }),
+            prisma.team.findUnique({
+                where: { id: targetTeamId },
+                include: { members: true },
+            }),
+        ]);
+
+        if (!sourceTeam || !targetTeam) {
+            return { success: false, error: "One or both teams not found" };
+        }
+
+        await prisma.$transaction(async (tx) => {
+            // Transfer members (skip duplicates)
+            for (const member of sourceTeam.members) {
+                const existingMembership = targetTeam.members.find(
+                    (m) => m.user_id === member.user_id
+                );
+
+                if (!existingMembership) {
+                    await tx.teamMember.update({
+                        where: { id: member.id },
+                        data: { team_id: targetTeamId },
+                    });
+                } else {
+                    // Delete duplicate membership
+                    await tx.teamMember.delete({
+                        where: { id: member.id },
+                    });
+                }
+            }
+
+            // Transfer all expenses
+            await tx.expense.updateMany({
+                where: { team_id: sourceTeamId },
+                data: { team_id: targetTeamId },
+            });
+
+            // Transfer activity logs
+            await tx.activityLog.updateMany({
+                where: { team_id: sourceTeamId },
+                data: { team_id: targetTeamId },
+            });
+
+            // Log the merge
+            await tx.activityLog.create({
+                data: {
+                    team_id: targetTeamId,
+                    user_id: targetTeam.members[0]?.user_id || sourceTeam.members[0]?.user_id,
+                    action: "TEAMS_MERGED",
+                    details: `Team "${sourceTeam.name}" was merged into this team. ${sourceTeam._count.members} members and ${sourceTeam._count.expenses} expenses transferred.`,
+                },
+            });
+
+            // Delete the source team
+            await tx.team.delete({
+                where: { id: sourceTeamId },
+            });
+        });
+
+        await invalidateTeamCache(targetTeamId);
+        revalidatePath("/admin/teams");
+
+        return {
+            success: true,
+            message: `Team "${sourceTeam.name}" has been merged into "${targetTeam.name}"`,
+        };
+    } catch (error) {
+        console.error("Error merging teams:", error);
+        return { success: false, error: "Failed to merge teams" };
+    }
+}

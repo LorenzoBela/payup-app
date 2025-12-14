@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { getTeamDeletionPreview, hardDeleteTeam, removeUserFromTeam, searchUsersForTeam, adminAddUserToTeam } from "@/app/actions/admin";
+import { getTeamDeletionPreview, hardDeleteTeam, removeUserFromTeam, searchUsersForTeam, adminAddUserToTeam, archiveTeam, transferTeamOwnership } from "@/app/actions/admin";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -30,7 +30,9 @@ import {
     DollarSign,
     Shield,
     Search,
-    CreditCard
+    CreditCard,
+    Archive,
+    Crown
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import Link from "next/link";
@@ -112,6 +114,14 @@ export function TeamDetailsClient({ team }: TeamDetailsClientProps) {
     const [selectedRole, setSelectedRole] = useState<"ADMIN" | "MEMBER">("MEMBER");
     const [isSearching, setIsSearching] = useState(false);
     const [isAddingMember, setIsAddingMember] = useState(false);
+
+    // Archive team state
+    const [isArchiving, setIsArchiving] = useState(false);
+
+    // Transfer ownership state
+    const [transferDialogOpen, setTransferDialogOpen] = useState(false);
+    const [selectedNewAdmin, setSelectedNewAdmin] = useState<string | null>(null);
+    const [isTransferring, setIsTransferring] = useState(false);
 
     // Debounced search function
     const searchUsers = useCallback(async (query: string) => {
@@ -225,6 +235,44 @@ export function TeamDetailsClient({ team }: TeamDetailsClientProps) {
         }
     };
 
+    const handleArchiveTeam = async () => {
+        setIsArchiving(true);
+        try {
+            const result = await archiveTeam(team.id);
+            if (result.success) {
+                toast.success(result.message);
+                router.push("/admin/teams");
+            } else {
+                toast.error(result.error);
+            }
+        } catch {
+            toast.error("Failed to archive team");
+        } finally {
+            setIsArchiving(false);
+        }
+    };
+
+    const handleTransferOwnership = async () => {
+        if (!selectedNewAdmin) return;
+
+        setIsTransferring(true);
+        try {
+            const result = await transferTeamOwnership(team.id, selectedNewAdmin);
+            if (result.success) {
+                toast.success(result.message);
+                setTransferDialogOpen(false);
+                setSelectedNewAdmin(null);
+                router.refresh();
+            } else {
+                toast.error(result.error);
+            }
+        } catch {
+            toast.error("Failed to transfer ownership");
+        } finally {
+            setIsTransferring(false);
+        }
+    };
+
     const getCategoryColor = (category: string) => {
         const colors: Record<string, string> = {
             food: "bg-orange-500/10 text-orange-500",
@@ -234,6 +282,9 @@ export function TeamDetailsClient({ team }: TeamDetailsClientProps) {
         };
         return colors[category] || colors.other;
     };
+
+    // Get non-admin members for transfer dialog
+    const nonAdminMembers = team.members.filter(m => m.teamRole !== "ADMIN");
 
     return (
         <div className="space-y-6">
@@ -257,114 +308,186 @@ export function TeamDetailsClient({ team }: TeamDetailsClientProps) {
                         </div>
                     </div>
                 </div>
-                <Button variant="destructive" className="gap-2" onClick={handleOpenDeleteDialog}>
-                    <Trash2 className="h-4 w-4" />
-                    Delete Team
-                </Button>
-                <Dialog open={deleteDialogOpen} onOpenChange={(open) => {
-                    if (!open) {
-                        setDeleteDialogOpen(false);
-                        setDeletionPreview(null);
-                        setConfirmName("");
-                    }
-                }}>
-                    <DialogContent className="sm:max-w-lg">
-                        <DialogHeader>
-                            <DialogTitle className="flex items-center gap-2 text-destructive">
-                                <AlertTriangle className="h-5 w-5" />
-                                Permanently Delete Team
-                            </DialogTitle>
-                            <DialogDescription>
-                                This action is <strong className="text-destructive">irreversible</strong>. All team data will be permanently deleted.
-                            </DialogDescription>
-                        </DialogHeader>
-
-                        {isLoadingPreview ? (
-                            <div className="flex items-center justify-center py-8">
-                                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                            </div>
-                        ) : deletionPreview ? (
-                            <div className="space-y-4">
-                                {/* Data to be deleted */}
-                                <div className="rounded-lg border bg-destructive/5 p-4 space-y-3">
-                                    <p className="font-medium text-sm">The following data will be permanently deleted:</p>
-                                    <div className="grid grid-cols-2 gap-3 text-sm">
-                                        <div className="flex items-center gap-2">
-                                            <Users className="h-4 w-4 text-muted-foreground" />
-                                            <span><strong>{deletionPreview.memberCount}</strong> members</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <Receipt className="h-4 w-4 text-muted-foreground" />
-                                            <span><strong>{deletionPreview.expenseCount}</strong> expenses</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <CreditCard className="h-4 w-4 text-muted-foreground" />
-                                            <span><strong>{deletionPreview.settlements.total}</strong> settlements</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <Activity className="h-4 w-4 text-muted-foreground" />
-                                            <span><strong>{deletionPreview.activityLogCount}</strong> logs</span>
-                                        </div>
-                                    </div>
-                                    {deletionPreview.totalVolume > 0 && (
-                                        <div className="pt-2 border-t">
-                                            <p className="text-sm">
-                                                Total expense volume: <strong className="text-destructive">
-                                                    ₱{deletionPreview.totalVolume.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                                                </strong>
-                                            </p>
-                                        </div>
-                                    )}
-                                    {deletionPreview.settlements.pending > 0 && (
-                                        <div className="pt-2 border-t">
-                                            <p className="text-sm text-amber-600">
-                                                ⚠️ <strong>{deletionPreview.settlements.pending}</strong> pending settlements will be lost
-                                            </p>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Confirmation input */}
-                                <div className="space-y-2">
-                                    <label className="text-sm font-medium">
-                                        Type <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-destructive">{deletionPreview.teamName}</code> to confirm:
-                                    </label>
-                                    <Input
-                                        value={confirmName}
-                                        onChange={(e) => setConfirmName(e.target.value)}
-                                        placeholder="Enter team name"
-                                        className="font-mono"
-                                    />
-                                </div>
-                            </div>
-                        ) : (
-                            <p className="text-center text-muted-foreground py-4">
-                                Failed to load deletion preview
-                            </p>
-                        )}
-
-                        <DialogFooter>
-                            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
-                                Cancel
+                <div className="flex gap-2 flex-wrap">
+                    <Dialog open={transferDialogOpen} onOpenChange={setTransferDialogOpen}>
+                        <DialogTrigger asChild>
+                            <Button variant="outline" className="gap-2">
+                                <Crown className="h-4 w-4" />
+                                Transfer Ownership
                             </Button>
-                            <Button
-                                variant="destructive"
-                                onClick={handleDeleteTeam}
-                                disabled={isDeleting || !deletionPreview || confirmName !== deletionPreview?.teamName}
-                            >
-                                {isDeleting ? (
-                                    <>
-                                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                                        Deleting...
-                                    </>
+                        </DialogTrigger>
+                        <DialogContent>
+                            <DialogHeader>
+                                <DialogTitle>Transfer Team Ownership</DialogTitle>
+                                <DialogDescription>
+                                    Select a new admin for team &quot;{team.name}&quot;. The current admin will be demoted to member.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <div className="space-y-3 py-4">
+                                {nonAdminMembers.length > 0 ? (
+                                    nonAdminMembers.map((member) => (
+                                        <div
+                                            key={member.userId}
+                                            className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${selectedNewAdmin === member.userId
+                                                ? "border-primary bg-primary/5"
+                                                : "hover:bg-muted/50"
+                                                }`}
+                                            onClick={() => setSelectedNewAdmin(member.userId)}
+                                        >
+                                            <div>
+                                                <p className="font-medium">{member.userName}</p>
+                                                <p className="text-sm text-muted-foreground">{member.userEmail}</p>
+                                            </div>
+                                            {selectedNewAdmin === member.userId && (
+                                                <Badge>Selected</Badge>
+                                            )}
+                                        </div>
+                                    ))
                                 ) : (
-                                    "Permanently Delete"
+                                    <p className="text-center text-muted-foreground py-4">
+                                        No other members to transfer ownership to
+                                    </p>
                                 )}
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
+                            </div>
+                            <DialogFooter>
+                                <Button variant="outline" onClick={() => setTransferDialogOpen(false)}>
+                                    Cancel
+                                </Button>
+                                <Button
+                                    onClick={handleTransferOwnership}
+                                    disabled={!selectedNewAdmin || isTransferring}
+                                >
+                                    {isTransferring ? (
+                                        <><Loader2 className="h-4 w-4 animate-spin mr-2" />Transferring...</>
+                                    ) : (
+                                        "Transfer Ownership"
+                                    )}
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
+                    <Button
+                        variant="secondary"
+                        className="gap-2"
+                        onClick={handleArchiveTeam}
+                        disabled={isArchiving}
+                    >
+                        {isArchiving ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                            <Archive className="h-4 w-4" />
+                        )}
+                        Archive Team
+                    </Button>
+                    <Button variant="destructive" className="gap-2" onClick={handleOpenDeleteDialog}>
+                        <Trash2 className="h-4 w-4" />
+                        Delete Team
+                    </Button>
+                </div>
             </div>
+            <Dialog open={deleteDialogOpen} onOpenChange={(open) => {
+                if (!open) {
+                    setDeleteDialogOpen(false);
+                    setDeletionPreview(null);
+                    setConfirmName("");
+                }
+            }}>
+                <DialogContent className="sm:max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 text-destructive">
+                            <AlertTriangle className="h-5 w-5" />
+                            Permanently Delete Team
+                        </DialogTitle>
+                        <DialogDescription>
+                            This action is <strong className="text-destructive">irreversible</strong>. All team data will be permanently deleted.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {isLoadingPreview ? (
+                        <div className="flex items-center justify-center py-8">
+                            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                        </div>
+                    ) : deletionPreview ? (
+                        <div className="space-y-4">
+                            {/* Data to be deleted */}
+                            <div className="rounded-lg border bg-destructive/5 p-4 space-y-3">
+                                <p className="font-medium text-sm">The following data will be permanently deleted:</p>
+                                <div className="grid grid-cols-2 gap-3 text-sm">
+                                    <div className="flex items-center gap-2">
+                                        <Users className="h-4 w-4 text-muted-foreground" />
+                                        <span><strong>{deletionPreview.memberCount}</strong> members</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Receipt className="h-4 w-4 text-muted-foreground" />
+                                        <span><strong>{deletionPreview.expenseCount}</strong> expenses</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <CreditCard className="h-4 w-4 text-muted-foreground" />
+                                        <span><strong>{deletionPreview.settlements.total}</strong> settlements</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Activity className="h-4 w-4 text-muted-foreground" />
+                                        <span><strong>{deletionPreview.activityLogCount}</strong> logs</span>
+                                    </div>
+                                </div>
+                                {deletionPreview.totalVolume > 0 && (
+                                    <div className="pt-2 border-t">
+                                        <p className="text-sm">
+                                            Total expense volume: <strong className="text-destructive">
+                                                ₱{deletionPreview.totalVolume.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                            </strong>
+                                        </p>
+                                    </div>
+                                )}
+                                {deletionPreview.settlements.pending > 0 && (
+                                    <div className="pt-2 border-t">
+                                        <p className="text-sm text-amber-600">
+                                            ⚠️ <strong>{deletionPreview.settlements.pending}</strong> pending settlements will be lost
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Confirmation input */}
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">
+                                    Type <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-destructive">{deletionPreview.teamName}</code> to confirm:
+                                </label>
+                                <Input
+                                    value={confirmName}
+                                    onChange={(e) => setConfirmName(e.target.value)}
+                                    placeholder="Enter team name"
+                                    className="font-mono"
+                                />
+                            </div>
+                        </div>
+                    ) : (
+                        <p className="text-center text-muted-foreground py-4">
+                            Failed to load deletion preview
+                        </p>
+                    )}
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={handleDeleteTeam}
+                            disabled={isDeleting || !deletionPreview || confirmName !== deletionPreview?.teamName}
+                        >
+                            {isDeleting ? (
+                                <>
+                                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                    Deleting...
+                                </>
+                            ) : (
+                                "Permanently Delete"
+                            )}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {/* Stats Cards */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -676,6 +799,6 @@ export function TeamDetailsClient({ team }: TeamDetailsClientProps) {
                     )}
                 </CardContent>
             </Card>
-        </div>
+        </div >
     );
 }
