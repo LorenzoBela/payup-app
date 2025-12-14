@@ -7,6 +7,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { UserSync } from "@/components/auth/user-sync";
 import { ThemeProvider } from "@/components/theme-provider";
+import { SmoothScroll } from "@/components/smooth-scroll";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -45,7 +46,9 @@ export default function RootLayout({
             disableTransitionOnChange
           >
             <UserSync />
-            {children}
+            <SmoothScroll>
+              {children}
+            </SmoothScroll>
             <Toaster />
             <SpeedInsights />
             <Analytics />
