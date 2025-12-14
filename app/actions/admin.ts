@@ -650,6 +650,167 @@ export async function softDeleteTeam(teamId: string) {
 }
 
 /**
+ * Get a preview of what will be deleted when a team is permanently deleted.
+ * Requires SuperAdmin privileges.
+ */
+export async function getTeamDeletionPreview(teamId: string) {
+    await requireSuperAdmin();
+
+    try {
+        const team = await prisma.team.findUnique({
+            where: { id: teamId },
+            select: {
+                id: true,
+                name: true,
+                code: true,
+                members: {
+                    select: {
+                        user: {
+                            select: { id: true, name: true, email: true },
+                        },
+                    },
+                },
+            },
+        });
+
+        if (!team) {
+            return { success: false, error: "Team not found" };
+        }
+
+        // Get expense counts and totals
+        const [
+            expenseCount,
+            expenseVolume,
+            pendingSettlements,
+            unconfirmedSettlements,
+            paidSettlements,
+            activityLogCount,
+        ] = await Promise.all([
+            prisma.expense.count({
+                where: { team_id: teamId },
+            }),
+            prisma.expense.aggregate({
+                where: { team_id: teamId },
+                _sum: { amount: true },
+            }),
+            prisma.settlement.count({
+                where: { expense: { team_id: teamId }, status: Status.pending },
+            }),
+            prisma.settlement.count({
+                where: { expense: { team_id: teamId }, status: Status.unconfirmed },
+            }),
+            prisma.settlement.count({
+                where: { expense: { team_id: teamId }, status: Status.paid },
+            }),
+            prisma.activityLog.count({
+                where: { team_id: teamId },
+            }),
+        ]);
+
+        return {
+            success: true,
+            preview: {
+                teamName: team.name,
+                teamCode: team.code,
+                memberCount: team.members.length,
+                members: team.members.map(m => ({
+                    id: m.user.id,
+                    name: m.user.name,
+                    email: m.user.email,
+                })),
+                expenseCount,
+                totalVolume: expenseVolume._sum.amount || 0,
+                settlements: {
+                    pending: pendingSettlements,
+                    unconfirmed: unconfirmedSettlements,
+                    paid: paidSettlements,
+                    total: pendingSettlements + unconfirmedSettlements + paidSettlements,
+                },
+                activityLogCount,
+            },
+        };
+    } catch (error) {
+        console.error("Error fetching team deletion preview:", error);
+        return { success: false, error: "Failed to fetch deletion preview" };
+    }
+}
+
+/**
+ * Permanently delete a team and ALL related data (hard delete).
+ * Requires SuperAdmin privileges.
+ * WARNING: This action is irreversible!
+ */
+export async function hardDeleteTeam(teamId: string, confirmTeamName: string) {
+    await requireSuperAdmin();
+
+    try {
+        // Verify team exists and name matches for safety
+        const team = await prisma.team.findUnique({
+            where: { id: teamId },
+            select: { id: true, name: true },
+        });
+
+        if (!team) {
+            return { success: false, error: "Team not found" };
+        }
+
+        if (team.name !== confirmTeamName) {
+            return { success: false, error: "Team name confirmation does not match" };
+        }
+
+        // Use a transaction to ensure atomicity
+        await prisma.$transaction(async (tx) => {
+            // Get all expense IDs for this team
+            const expenseIds = await tx.expense.findMany({
+                where: { team_id: teamId },
+                select: { id: true },
+            });
+            const expenseIdList = expenseIds.map(e => e.id);
+
+            // Delete all settlements for team expenses
+            if (expenseIdList.length > 0) {
+                await tx.settlement.deleteMany({
+                    where: { expense_id: { in: expenseIdList } },
+                });
+            }
+
+            // Delete all expenses (including child monthly expenses)
+            await tx.expense.deleteMany({
+                where: { team_id: teamId },
+            });
+
+            // Delete all activity logs
+            await tx.activityLog.deleteMany({
+                where: { team_id: teamId },
+            });
+
+            // Delete all team members
+            await tx.teamMember.deleteMany({
+                where: { team_id: teamId },
+            });
+
+            // Delete the team itself
+            await tx.team.delete({
+                where: { id: teamId },
+            });
+        });
+
+        // Invalidate cache for affected team
+        invalidateTeamCache(teamId);
+        revalidatePath('/admin/teams');
+        revalidatePath('/admin');
+
+        return {
+            success: true,
+            message: `Team "${team.name}" and all related data have been permanently deleted`,
+        };
+    } catch (error) {
+        console.error("Error permanently deleting team:", error);
+        return { success: false, error: "Failed to permanently delete team" };
+    }
+}
+
+/**
  * Get advanced statistics with growth metrics.
  * Requires SuperAdmin privileges.
  */

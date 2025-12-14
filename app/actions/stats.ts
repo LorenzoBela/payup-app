@@ -9,11 +9,19 @@ export async function getLandingStats() {
             db.user.count({
                 where: { deleted_at: null }
             }),
+            // Only count parent expenses (not monthly child expenses)
             db.expense.count({
-                where: { deleted_at: null }
+                where: {
+                    deleted_at: null,
+                    parent_expense_id: null  // Exclude child monthly expenses
+                }
             }),
+            // Sum only parent expenses to avoid double-counting monthly installments
             db.expense.aggregate({
-                where: { deleted_at: null },
+                where: {
+                    deleted_at: null,
+                    parent_expense_id: null  // Exclude child monthly expenses
+                },
                 _sum: { amount: true }
             })
         ]);

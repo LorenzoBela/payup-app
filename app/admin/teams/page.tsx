@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { getAllTeams, softDeleteTeam } from "@/app/actions/admin";
+import { getAllTeams, getTeamDeletionPreview, hardDeleteTeam } from "@/app/actions/admin";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import {
+    AlertTriangle,
     Loader2,
     Search,
     Building2,
@@ -32,7 +33,9 @@ import {
     ChevronRight,
     MoreHorizontal,
     Eye,
-    Trash2
+    Trash2,
+    Activity,
+    CreditCard
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import Link from "next/link";
@@ -47,6 +50,22 @@ interface Team {
     expenseCount: number;
 }
 
+interface DeletionPreview {
+    teamName: string;
+    teamCode: string;
+    memberCount: number;
+    members: { id: string; name: string; email: string }[];
+    expenseCount: number;
+    totalVolume: number;
+    settlements: {
+        pending: number;
+        unconfirmed: number;
+        paid: number;
+        total: number;
+    };
+    activityLogCount: number;
+}
+
 export default function AdminTeamsPage() {
     const [teams, setTeams] = useState<Team[]>([]);
     const [loading, setLoading] = useState(true);
@@ -57,6 +76,9 @@ export default function AdminTeamsPage() {
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [teamToDelete, setTeamToDelete] = useState<Team | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [deletionPreview, setDeletionPreview] = useState<DeletionPreview | null>(null);
+    const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+    const [confirmName, setConfirmName] = useState("");
 
     const fetchTeams = useCallback(async () => {
         setLoading(true);
@@ -86,17 +108,37 @@ export default function AdminTeamsPage() {
         fetchTeams();
     };
 
-    const handleDeleteClick = (team: Team) => {
+    const handleDeleteClick = async (team: Team) => {
         setTeamToDelete(team);
         setDeleteDialogOpen(true);
+        setConfirmName("");
+        setDeletionPreview(null);
+        setIsLoadingPreview(true);
+
+        try {
+            const result = await getTeamDeletionPreview(team.id);
+            if (result.success && result.preview) {
+                setDeletionPreview(result.preview);
+            } else {
+                toast.error(result.error || "Failed to load deletion preview");
+            }
+        } catch {
+            toast.error("Failed to load deletion preview");
+        } finally {
+            setIsLoadingPreview(false);
+        }
     };
 
     const handleConfirmDelete = async () => {
-        if (!teamToDelete) return;
+        if (!teamToDelete || !deletionPreview) return;
+        if (confirmName !== deletionPreview.teamName) {
+            toast.error("Team name does not match");
+            return;
+        }
 
         setIsDeleting(true);
         try {
-            const result = await softDeleteTeam(teamToDelete.id);
+            const result = await hardDeleteTeam(teamToDelete.id, confirmName);
             if (result.success) {
                 toast.success(result.message);
                 fetchTeams();
@@ -109,6 +151,8 @@ export default function AdminTeamsPage() {
             setIsDeleting(false);
             setDeleteDialogOpen(false);
             setTeamToDelete(null);
+            setDeletionPreview(null);
+            setConfirmName("");
         }
     };
 
@@ -263,16 +307,89 @@ export default function AdminTeamsPage() {
             </Card>
 
             {/* Delete Confirmation Dialog */}
-            <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-                <DialogContent>
+            <Dialog open={deleteDialogOpen} onOpenChange={(open) => {
+                if (!open) {
+                    setDeleteDialogOpen(false);
+                    setTeamToDelete(null);
+                    setDeletionPreview(null);
+                    setConfirmName("");
+                }
+            }}>
+                <DialogContent className="sm:max-w-lg">
                     <DialogHeader>
-                        <DialogTitle>Delete Team</DialogTitle>
+                        <DialogTitle className="flex items-center gap-2 text-destructive">
+                            <AlertTriangle className="h-5 w-5" />
+                            Permanently Delete Team
+                        </DialogTitle>
                         <DialogDescription>
-                            Are you sure you want to delete &quot;{teamToDelete?.name}&quot;?
-                            This will remove all members and soft-delete all expenses.
-                            This action cannot be undone.
+                            This action is <strong className="text-destructive">irreversible</strong>. All team data will be permanently deleted.
                         </DialogDescription>
                     </DialogHeader>
+
+                    {isLoadingPreview ? (
+                        <div className="flex items-center justify-center py-8">
+                            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                        </div>
+                    ) : deletionPreview ? (
+                        <div className="space-y-4">
+                            {/* Data to be deleted */}
+                            <div className="rounded-lg border bg-destructive/5 p-4 space-y-3">
+                                <p className="font-medium text-sm">The following data will be permanently deleted:</p>
+                                <div className="grid grid-cols-2 gap-3 text-sm">
+                                    <div className="flex items-center gap-2">
+                                        <Users className="h-4 w-4 text-muted-foreground" />
+                                        <span><strong>{deletionPreview.memberCount}</strong> members</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Receipt className="h-4 w-4 text-muted-foreground" />
+                                        <span><strong>{deletionPreview.expenseCount}</strong> expenses</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <CreditCard className="h-4 w-4 text-muted-foreground" />
+                                        <span><strong>{deletionPreview.settlements.total}</strong> settlements</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Activity className="h-4 w-4 text-muted-foreground" />
+                                        <span><strong>{deletionPreview.activityLogCount}</strong> logs</span>
+                                    </div>
+                                </div>
+                                {deletionPreview.totalVolume > 0 && (
+                                    <div className="pt-2 border-t">
+                                        <p className="text-sm">
+                                            Total expense volume: <strong className="text-destructive">
+                                                ₱{deletionPreview.totalVolume.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                            </strong>
+                                        </p>
+                                    </div>
+                                )}
+                                {deletionPreview.settlements.pending > 0 && (
+                                    <div className="pt-2 border-t">
+                                        <p className="text-sm text-amber-600">
+                                            ⚠️ <strong>{deletionPreview.settlements.pending}</strong> pending settlements will be lost
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Confirmation input */}
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium">
+                                    Type <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-destructive">{deletionPreview.teamName}</code> to confirm:
+                                </label>
+                                <Input
+                                    value={confirmName}
+                                    onChange={(e) => setConfirmName(e.target.value)}
+                                    placeholder="Enter team name"
+                                    className="font-mono"
+                                />
+                            </div>
+                        </div>
+                    ) : (
+                        <p className="text-center text-muted-foreground py-4">
+                            Failed to load deletion preview
+                        </p>
+                    )}
+
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
                             Cancel
@@ -280,7 +397,7 @@ export default function AdminTeamsPage() {
                         <Button
                             variant="destructive"
                             onClick={handleConfirmDelete}
-                            disabled={isDeleting}
+                            disabled={isDeleting || !deletionPreview || confirmName !== deletionPreview?.teamName}
                         >
                             {isDeleting ? (
                                 <>
@@ -288,7 +405,7 @@ export default function AdminTeamsPage() {
                                     Deleting...
                                 </>
                             ) : (
-                                "Delete Team"
+                                "Permanently Delete"
                             )}
                         </Button>
                     </DialogFooter>
