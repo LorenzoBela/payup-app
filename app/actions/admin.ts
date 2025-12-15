@@ -26,11 +26,11 @@ export async function getSystemStats() {
             prisma.user.count({ where: { deleted_at: null } }),
             prisma.user.count({ where: { role: UserRole.SuperAdmin, deleted_at: null } }),
             prisma.team.count(),
-            prisma.expense.count({ where: { deleted_at: null } }),
+            prisma.expense.count({ where: { deleted_at: null, parent_expense_id: null } }),
             prisma.settlement.count({ where: { deleted_at: null } }),
             prisma.settlement.count({ where: { status: Status.pending, deleted_at: null } }),
             prisma.expense.aggregate({
-                where: { deleted_at: null },
+                where: { deleted_at: null, parent_expense_id: null },
                 _sum: { amount: true },
             }),
         ]);
@@ -501,7 +501,7 @@ export async function getTeamDetails(teamId: string) {
 
         // Calculate team totals
         const expenseTotal = await prisma.expense.aggregate({
-            where: { team_id: teamId, deleted_at: null },
+            where: { team_id: teamId, deleted_at: null, parent_expense_id: null },
             _sum: { amount: true },
         });
 
@@ -862,7 +862,7 @@ export async function getAdvancedStats() {
             // Current counts
             prisma.user.count({ where: { deleted_at: null } }),
             prisma.team.count(),
-            prisma.expense.count({ where: { deleted_at: null } }),
+            prisma.expense.count({ where: { deleted_at: null, parent_expense_id: null } }),
             prisma.settlement.count({ where: { status: Status.pending, deleted_at: null } }),
             prisma.settlement.count({ where: { status: Status.unconfirmed, deleted_at: null } }),
             prisma.settlement.count({ where: { status: Status.paid, deleted_at: null } }),
@@ -870,22 +870,22 @@ export async function getAdvancedStats() {
             // This week
             prisma.user.count({ where: { created_at: { gte: weekAgo }, deleted_at: null } }),
             prisma.team.count({ where: { created_at: { gte: weekAgo } } }),
-            prisma.expense.count({ where: { created_at: { gte: weekAgo }, deleted_at: null } }),
+            prisma.expense.count({ where: { created_at: { gte: weekAgo }, deleted_at: null, parent_expense_id: null } }),
             prisma.settlement.count({ where: { created_at: { gte: weekAgo }, deleted_at: null } }),
 
             // Last week
             prisma.user.count({ where: { created_at: { gte: twoWeeksAgo, lt: weekAgo }, deleted_at: null } }),
             prisma.team.count({ where: { created_at: { gte: twoWeeksAgo, lt: weekAgo } } }),
-            prisma.expense.count({ where: { created_at: { gte: twoWeeksAgo, lt: weekAgo }, deleted_at: null } }),
+            prisma.expense.count({ where: { created_at: { gte: twoWeeksAgo, lt: weekAgo }, deleted_at: null, parent_expense_id: null } }),
             prisma.settlement.count({ where: { created_at: { gte: twoWeeksAgo, lt: weekAgo }, deleted_at: null } }),
 
             // Volumes
-            prisma.expense.aggregate({ where: { created_at: { gte: weekAgo }, deleted_at: null }, _sum: { amount: true } }),
-            prisma.expense.aggregate({ where: { created_at: { gte: twoWeeksAgo, lt: weekAgo }, deleted_at: null }, _sum: { amount: true } }),
-            prisma.expense.aggregate({ where: { created_at: { gte: monthAgo }, deleted_at: null }, _sum: { amount: true } }),
+            prisma.expense.aggregate({ where: { created_at: { gte: weekAgo }, deleted_at: null, parent_expense_id: null }, _sum: { amount: true } }),
+            prisma.expense.aggregate({ where: { created_at: { gte: twoWeeksAgo, lt: weekAgo }, deleted_at: null, parent_expense_id: null }, _sum: { amount: true } }),
+            prisma.expense.aggregate({ where: { created_at: { gte: monthAgo }, deleted_at: null, parent_expense_id: null }, _sum: { amount: true } }),
 
             // Today
-            prisma.expense.count({ where: { created_at: { gte: today }, deleted_at: null } }),
+            prisma.expense.count({ where: { created_at: { gte: today }, deleted_at: null, parent_expense_id: null } }),
             prisma.settlement.count({ where: { created_at: { gte: today }, deleted_at: null } }),
         ]);
 
@@ -954,6 +954,7 @@ export async function getExpenseAnalytics(options?: {
         const expenses = await prisma.expense.findMany({
             where: {
                 deleted_at: null,
+                parent_expense_id: null, // Exclude child monthly expenses
                 created_at: { gte: startDate, lte: endDate },
             },
             select: {
