@@ -10,6 +10,7 @@ import {
     sendSettlementConfirmation,
     sendPaymentReceipt
 } from "@/lib/emails";
+import { sendBatchedEmails } from "@/lib/emails/queue";
 
 interface CreateExpenseInput {
     description: string;
@@ -110,27 +111,35 @@ export async function createExpense(input: CreateExpenseInput) {
         // Invalidate cache for all team members
         await invalidateTeamCache(input.teamId, userId);
         revalidatePath("/dashboard");
-        // Send notifications asynchronously
+        // Send notifications asynchronously with rate limiting
         const teamName = teamMembers[0]?.team?.name || "PayUp Team";
         const creatorName = currentMember.user.name || "Team Member";
 
-        const emailPromises = teamMembers
+        // Build rate-limited email batch (avoids Resend's 2 req/sec limit)
+        const emailBatch = teamMembers
             .filter(member => member.user_id !== userId)
-            .map(member => sendExpenseNotification(member.user.email, {
-                recipientName: member.user.name.split(' ')[0],
-                creatorName: creatorName,
-                expenseDescription: input.description,
-                totalAmount: input.amount,
-                yourShare: splitAmount,
-                currency: "PHP",
-                category: input.category,
-                teamName: teamName,
-                memberCount: teamMembers.length,
-                deadline: "Upon Request"
-            }));
+            .map(member => {
+                const emailData = {
+                    recipientName: member.user.name.split(' ')[0],
+                    creatorName: creatorName,
+                    expenseDescription: input.description,
+                    totalAmount: input.amount,
+                    yourShare: splitAmount,
+                    currency: "PHP",
+                    category: input.category,
+                    teamName: teamName,
+                    memberCount: teamMembers.length,
+                    deadline: "Upon Request"
+                };
+                return {
+                    email: member.user.email,
+                    sendFn: () => sendExpenseNotification(member.user.email, emailData),
+                    data: emailData
+                };
+            });
 
-        // Fire and forget - don't block response
-        Promise.allSettled(emailPromises).catch(console.error);
+        // Fire and forget with rate limiting - sends emails at ~1.6/sec
+        sendBatchedEmails(emailBatch).catch(console.error);
 
         return { success: true, expense: result };
     } catch (error) {
@@ -287,26 +296,35 @@ export async function createMonthlyExpense(input: CreateMonthlyExpenseInput) {
         // Invalidate cache after creating monthly expense
         await invalidateTeamCache(input.teamId, userId);
         revalidatePath("/dashboard");
-        // Send notifications asynchronously
+        // Send notifications asynchronously with rate limiting
         const teamName = teamMembers[0]?.team?.name || "PayUp Team";
         const creatorName = currentMember.user.name || "Team Member";
 
-        const emailPromises = teamMembers
+        // Build rate-limited email batch (avoids Resend's 2 req/sec limit)
+        const emailBatch = teamMembers
             .filter(member => member.user_id !== userId)
-            .map(member => sendExpenseNotification(member.user.email, {
-                recipientName: member.user.name.split(' ')[0],
-                creatorName: creatorName,
-                expenseDescription: `${input.description} (Monthly Plan - ${input.numberOfMonths} months)`,
-                totalAmount: input.totalAmount,
-                yourShare: perParticipantAmount,
-                currency: "PHP",
-                category: input.category,
-                teamName: teamName,
-                memberCount: teamMembers.length,
-                deadline: `Monthly on day ${input.deadlineDay}`
-            }));
+            .map(member => {
+                const emailData = {
+                    recipientName: member.user.name.split(' ')[0],
+                    creatorName: creatorName,
+                    expenseDescription: `${input.description} (Monthly Plan - ${input.numberOfMonths} months)`,
+                    totalAmount: input.totalAmount,
+                    yourShare: perParticipantAmount,
+                    currency: "PHP",
+                    category: input.category,
+                    teamName: teamName,
+                    memberCount: teamMembers.length,
+                    deadline: `Monthly on day ${input.deadlineDay}`
+                };
+                return {
+                    email: member.user.email,
+                    sendFn: () => sendExpenseNotification(member.user.email, emailData),
+                    data: emailData
+                };
+            });
 
-        Promise.allSettled(emailPromises).catch(console.error);
+        // Fire and forget with rate limiting - sends emails at ~1.6/sec
+        sendBatchedEmails(emailBatch).catch(console.error);
 
         return {
             success: true,
@@ -764,94 +782,94 @@ export async function getTeamSettlements(
         const fetchSettlements = async () => {
             // Get expenses with their settlements in a single query pattern
             const expenses = await prisma.expense.findMany({
-            where: {
-                team_id: teamId,
-                deleted_at: null,
-            },
-            select: {
-                id: true,
-                description: true,
-                paid_by: true,
-                // Include deadline fields
-                is_monthly: true,
-                deadline: true,
-                deadline_day: true,
-            },
-        });
-
-        const expenseIds = expenses.map((e) => e.id);
-        const expenseMap = new Map(expenses.map((e) => [e.id, e]));
-
-        if (expenseIds.length === 0) {
-            return { settlements: [], nextCursor: null };
-        }
-
-        // Get settlements with pagination
-        const settlements = await prisma.settlement.findMany({
-            where: {
-                expense_id: { in: expenseIds },
-                deleted_at: null,
-                ...(cursor ? { id: { lt: cursor } } : {}),
-            },
-            orderBy: { created_at: "desc" },
-            take: limit + 1,
-        });
-
-        // Collect all user IDs and batch fetch
-        const userIds = [
-            ...new Set([
-                ...settlements.map((s) => s.owed_by),
-                ...expenses.map((e) => e.paid_by),
-            ]),
-        ];
-
-        const users = userIds.length > 0
-            ? await prisma.user.findMany({
                 where: {
-                    id: { in: userIds },
-                    teams: {
-                        some: {
-                            team_id: teamId  // Only current team members
-                        }
-                    }
+                    team_id: teamId,
+                    deleted_at: null,
                 },
-                select: { id: true, name: true },
-            })
-            : [];
-        const userMap = new Map(users.map((u) => [u.id, u.name]));
+                select: {
+                    id: true,
+                    description: true,
+                    paid_by: true,
+                    // Include deadline fields
+                    is_monthly: true,
+                    deadline: true,
+                    deadline_day: true,
+                },
+            });
 
-        // Check pagination
-        const hasMore = settlements.length > limit;
-        const resultSettlements = hasMore ? settlements.slice(0, -1) : settlements;
-        const nextCursor = hasMore ? resultSettlements[resultSettlements.length - 1]?.id : null;
+            const expenseIds = expenses.map((e) => e.id);
+            const expenseMap = new Map(expenses.map((e) => [e.id, e]));
 
-        return {
-            settlements: resultSettlements.map((settlement) => {
-                const expense = expenseMap.get(settlement.expense_id);
-                const isCurrentUserOwing = settlement.owed_by === userId;
-                const isCurrentUserOwed = expense?.paid_by === userId;
+            if (expenseIds.length === 0) {
+                return { settlements: [], nextCursor: null };
+            }
 
-                return {
-                    id: settlement.id,
-                    expense_id: settlement.expense_id,
-                    expense_description: expense?.description || "Unknown expense",
-                    owed_by: isCurrentUserOwing ? "You" : userMap.get(settlement.owed_by) || "Former Member",
-                    owed_to: isCurrentUserOwed ? "You" : userMap.get(expense?.paid_by || "") || "Former Member",
-                    owed_by_id: settlement.owed_by,
-                    owed_to_id: expense?.paid_by || "",
-                    amount: settlement.amount_owed,
-                    status: settlement.status,
-                    paid_at: settlement.paid_at,
-                    isCurrentUserOwing,
-                    isCurrentUserOwed,
-                    // Include deadline info
-                    is_monthly: expense?.is_monthly || false,
-                    deadline: expense?.deadline || null,
-                    deadline_day: expense?.deadline_day || null,
-                };
-            }),
-            nextCursor,
-        };
+            // Get settlements with pagination
+            const settlements = await prisma.settlement.findMany({
+                where: {
+                    expense_id: { in: expenseIds },
+                    deleted_at: null,
+                    ...(cursor ? { id: { lt: cursor } } : {}),
+                },
+                orderBy: { created_at: "desc" },
+                take: limit + 1,
+            });
+
+            // Collect all user IDs and batch fetch
+            const userIds = [
+                ...new Set([
+                    ...settlements.map((s) => s.owed_by),
+                    ...expenses.map((e) => e.paid_by),
+                ]),
+            ];
+
+            const users = userIds.length > 0
+                ? await prisma.user.findMany({
+                    where: {
+                        id: { in: userIds },
+                        teams: {
+                            some: {
+                                team_id: teamId  // Only current team members
+                            }
+                        }
+                    },
+                    select: { id: true, name: true },
+                })
+                : [];
+            const userMap = new Map(users.map((u) => [u.id, u.name]));
+
+            // Check pagination
+            const hasMore = settlements.length > limit;
+            const resultSettlements = hasMore ? settlements.slice(0, -1) : settlements;
+            const nextCursor = hasMore ? resultSettlements[resultSettlements.length - 1]?.id : null;
+
+            return {
+                settlements: resultSettlements.map((settlement) => {
+                    const expense = expenseMap.get(settlement.expense_id);
+                    const isCurrentUserOwing = settlement.owed_by === userId;
+                    const isCurrentUserOwed = expense?.paid_by === userId;
+
+                    return {
+                        id: settlement.id,
+                        expense_id: settlement.expense_id,
+                        expense_description: expense?.description || "Unknown expense",
+                        owed_by: isCurrentUserOwing ? "You" : userMap.get(settlement.owed_by) || "Former Member",
+                        owed_to: isCurrentUserOwed ? "You" : userMap.get(expense?.paid_by || "") || "Former Member",
+                        owed_by_id: settlement.owed_by,
+                        owed_to_id: expense?.paid_by || "",
+                        amount: settlement.amount_owed,
+                        status: settlement.status,
+                        paid_at: settlement.paid_at,
+                        isCurrentUserOwing,
+                        isCurrentUserOwed,
+                        // Include deadline info
+                        is_monthly: expense?.is_monthly || false,
+                        deadline: expense?.deadline || null,
+                        deadline_day: expense?.deadline_day || null,
+                    };
+                }),
+                nextCursor,
+            };
         };
 
         // Cache first page only (no cursor), subsequent pages are direct DB queries
@@ -1697,7 +1715,7 @@ export async function getDashboardData(teamId: string) {
                 let youOwe = 0, owedToYou = 0;
                 const youOweUsers = new Set<string>();
                 const owedToYouUsers = new Set<string>();
-                
+
                 for (const s of balanceData) {
                     if (s.owed_by === userId) {
                         youOwe += s.amount_owed;

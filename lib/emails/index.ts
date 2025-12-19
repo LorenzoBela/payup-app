@@ -24,3 +24,10 @@ export type {
     PaymentReminderData,
     TeamInviteData,
 } from "./send";
+
+// Rate-limited email queue
+export {
+    sendEmailsWithRateLimit,
+    sendBatchedEmails,
+} from "./queue";
+
