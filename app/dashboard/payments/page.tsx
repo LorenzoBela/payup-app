@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useTeam } from "@/components/dashboard/team-provider";
 import { getPaymentsPageData, markSettlementAsPaid, markSettlementsAsPaid, verifySettlement, rejectSettlement } from "@/app/actions/expenses";
 import { updateGcashNumber } from "@/app/actions/auth";
@@ -25,6 +26,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { PaymentSummary } from "@/components/dashboard/payment-summary";
+import { SettlementAgreements } from "@/components/dashboard/settlement-agreements";
+import { PaymentCalendarView } from "@/components/dashboard/payment-calendar-view";
 
 interface Person {
     id: string;
@@ -59,6 +62,8 @@ interface GroupedDebt {
 
 export default function PaymentsPage() {
     const { selectedTeam } = useTeam();
+    const searchParams = useSearchParams();
+    const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'payables');
     const [payables, setPayables] = useState<GroupedDebt[]>([]);
     const [receivables, setReceivables] = useState<GroupedDebt[]>([]);
     const [loading, setLoading] = useState(false);
@@ -597,7 +602,7 @@ export default function PaymentsPage() {
     };
 
     return (
-        <div className="space-y-6 max-w-4xl mx-auto">
+        <div className={`space-y-6 mx-auto ${activeTab === 'calendar' ? 'max-w-7.5xl' : 'max-w-7.5xl'}`}>
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-2">
                     <DollarSign className="w-8 h-8 text-primary" />
@@ -684,8 +689,11 @@ export default function PaymentsPage() {
                 </CardContent>
             </Card>
 
-            <Tabs defaultValue="payables" className="w-full">
-                <TabsList className="grid w-full grid-cols-2">
+            {/* Settlement Agreements */}
+            <SettlementAgreements />
+
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="payables" className="text-sm sm:text-base">
                         <span className="hidden sm:inline">I Owe (Payables)</span>
                         <span className="sm:hidden">I Owe</span>
@@ -694,6 +702,10 @@ export default function PaymentsPage() {
                         <span className="hidden sm:inline">Owed to Me (Receivables)</span>
                         <span className="sm:hidden">Owed to Me</span>
                     </TabsTrigger>
+                    <TabsTrigger value="calendar" className="text-sm sm:text-base gap-1">
+                        <Calendar className="w-4 h-4" />
+                        <span className="hidden sm:inline">Calendar</span>
+                    </TabsTrigger>
                 </TabsList>
                 <TabsContent value="payables" className="mt-6">
                     <DebtList groups={payables} type="payable" />
@@ -701,7 +713,10 @@ export default function PaymentsPage() {
                 <TabsContent value="receivables" className="mt-6">
                     <DebtList groups={receivables} type="receivable" />
                 </TabsContent>
-            </Tabs >
+                <TabsContent value="calendar" className="mt-6">
+                    <PaymentCalendarView />
+                </TabsContent>
+            </Tabs>
 
             {/* Modal for Payments */}
             {

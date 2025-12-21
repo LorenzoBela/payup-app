@@ -107,6 +107,13 @@ enum UserRole {
   SuperAdmin
 }
 
+enum AgreementStatus {
+  pending
+  accepted
+  rejected
+  expired
+}
+
 model Team {
   id          String        @id @default(uuid())
   name        String
@@ -117,6 +124,7 @@ model Team {
   members     TeamMember[]
   expenses    Expense[]
   activities  ActivityLog[]
+  settlementAgreements SettlementAgreement[]
 
   @@map("teams")
 }
@@ -150,4 +158,31 @@ model ActivityLog {
   @@index([team_id, created_at]) // Team activity timeline
   @@index([user_id, created_at]) // User activity history
   @@map("activity_logs")
+}
+
+model SettlementAgreement {
+  id               String          @id @default(uuid())
+  team_id          String
+  proposer_id      String          // User who proposed the agreement
+  responder_id     String          // User who needs to accept/reject
+  
+  // The settlements being cancelled
+  proposer_owes    Float           // Amount proposer owes to responder
+  responder_owes   Float           // Amount responder owes to proposer
+  net_amount       Float           // Net amount after cancellation (positive = responder owes proposer)
+  
+  // Settlement IDs being affected
+  settlement_ids   String[]        // IDs of settlements being cancelled
+  
+  status           AgreementStatus @default(pending)
+  
+  proposed_at      DateTime        @default(now())
+  responded_at     DateTime?
+  
+  team             Team            @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  
+  @@index([team_id, status])
+  @@index([proposer_id, status])
+  @@index([responder_id, status])
+  @@map("settlement_agreements")
 }

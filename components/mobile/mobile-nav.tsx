@@ -2,13 +2,14 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Home, Receipt, DollarSign, Plus, MoreHorizontal, Users, FileText, BarChart3, Settings, ScrollText, Shield } from "lucide-react";
+import { Home, Receipt, DollarSign, Plus, MoreHorizontal, Users, FileText, BarChart3, Settings, ScrollText, Shield, Handshake, Calendar } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { MobileSettleUp } from "./mobile-settle-up";
+import { MobileSettlementAgreements } from "./mobile-settlement-agreements";
 import { useUserRole } from "@/lib/hooks/use-user-role";
 
 const primaryNavItems = [
@@ -36,6 +37,12 @@ const primaryNavItems = [
 ];
 
 const moreMenuItems = [
+    {
+        href: "/dashboard/payments?tab=calendar",
+        label: "Payment Calendar",
+        icon: Calendar,
+        description: "View payment schedule"
+    },
     {
         href: "/dashboard/members",
         label: "Members",
@@ -80,6 +87,7 @@ export function MobileNav() {
     const pathname = usePathname();
     const [addMenuOpen, setAddMenuOpen] = useState(false);
     const [settleUpOpen, setSettleUpOpen] = useState(false);
+    const [settlementAgreementsOpen, setSettlementAgreementsOpen] = useState(false);
     const [moreMenuOpen, setMoreMenuOpen] = useState(false);
     const { isSuperAdmin, isLoading: roleLoading } = useUserRole();
 
@@ -98,6 +106,13 @@ export function MobileNav() {
         setAddMenuOpen(false);
         setTimeout(() => {
             setSettleUpOpen(true);
+        }, 150);
+    };
+
+    const handleSettlementAgreements = () => {
+        setAddMenuOpen(false);
+        setTimeout(() => {
+            setSettlementAgreementsOpen(true);
         }, 150);
     };
 
@@ -258,12 +273,26 @@ export function MobileNav() {
                                 <div className="text-xs text-muted-foreground">Record a payment</div>
                             </div>
                         </Button>
+                        <Button
+                            variant="outline"
+                            className="justify-start h-16 border-purple-200 hover:bg-purple-50 dark:border-purple-800 dark:hover:bg-purple-950/20"
+                            onClick={handleSettlementAgreements}
+                        >
+                            <Handshake className="mr-3 h-5 w-5 shrink-0 text-purple-600" />
+                            <div className="text-left">
+                                <div className="font-semibold">Settlement Agreements</div>
+                                <div className="text-xs text-muted-foreground">Cancel out mutual debts</div>
+                            </div>
+                        </Button>
                     </div>
                 </DialogContent>
             </Dialog>
 
             {/* Settle Up Sheet */}
             <MobileSettleUp open={settleUpOpen} onOpenChange={setSettleUpOpen} />
+
+            {/* Settlement Agreements Sheet */}
+            <MobileSettlementAgreements open={settlementAgreementsOpen} onOpenChange={setSettlementAgreementsOpen} />
         </>
     );
 }

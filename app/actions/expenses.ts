@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
-import { Status, PaymentMethod } from "@prisma/client";
+import { Status, PaymentMethod, AgreementStatus } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { cached, cacheKeys, CACHE_TTL, invalidateTeamCache } from "@/lib/cache";
 import {
@@ -1745,5 +1745,441 @@ export async function getDashboardData(teamId: string) {
     } catch (error) {
         console.error("Error fetching dashboard data:", error);
         return null;
+    }
+}
+
+// ============================================================================
+// SETTLEMENT AGREEMENTS - Mutual Debt Cancellation Feature
+// ============================================================================
+
+interface MutualDebt {
+    userId: string;
+    userName: string;
+    userEmail: string;
+    iOwe: number;           // Amount current user owes them
+    theyOwe: number;        // Amount they owe current user
+    netAmount: number;      // Positive = they owe me, Negative = I owe them
+    mySettlementIds: string[];    // Settlement IDs where I owe them
+    theirSettlementIds: string[]; // Settlement IDs where they owe me
+}
+
+// Detect all mutual debts for the current user in a team
+export async function detectMutualDebts(teamId: string): Promise<{ mutualDebts: MutualDebt[] }> {
+    try {
+        const { userId } = await auth();
+        if (!userId) {
+            return { mutualDebts: [] };
+        }
+
+        // Get all pending/unconfirmed settlements for this team
+        const settlements = await prisma.settlement.findMany({
+            where: {
+                deleted_at: null,
+                status: { in: [Status.pending, Status.unconfirmed] },
+                expense: {
+                    team_id: teamId,
+                    deleted_at: null,
+                },
+            },
+            include: {
+                expense: {
+                    select: {
+                        paid_by: true,
+                    },
+                },
+            },
+        });
+
+        // Build a map of debts between users
+        // Key format: "debtorId->creditorId"
+        const debtMap = new Map<string, { amount: number; settlementIds: string[] }>();
+
+        for (const s of settlements) {
+            const debtorId = s.owed_by;
+            const creditorId = s.expense.paid_by;
+            const key = `${debtorId}->${creditorId}`;
+
+            if (!debtMap.has(key)) {
+                debtMap.set(key, { amount: 0, settlementIds: [] });
+            }
+            const entry = debtMap.get(key)!;
+            entry.amount += s.amount_owed;
+            entry.settlementIds.push(s.id);
+        }
+
+        // Find mutual debts involving current user
+        const mutualDebtsMap = new Map<string, MutualDebt>();
+
+        for (const [key, value] of debtMap.entries()) {
+            const [debtorId, creditorId] = key.split('->');
+
+            // Check if current user is involved
+            if (debtorId !== userId && creditorId !== userId) continue;
+
+            const otherUserId = debtorId === userId ? creditorId : debtorId;
+
+            // Check for reverse debt
+            const reverseKey = `${creditorId}->${debtorId}`;
+            const reverseDebt = debtMap.get(reverseKey);
+
+            if (reverseDebt && reverseDebt.amount > 0) {
+                // We have mutual debt!
+                if (!mutualDebtsMap.has(otherUserId)) {
+                    mutualDebtsMap.set(otherUserId, {
+                        userId: otherUserId,
+                        userName: '',
+                        userEmail: '',
+                        iOwe: 0,
+                        theyOwe: 0,
+                        netAmount: 0,
+                        mySettlementIds: [],
+                        theirSettlementIds: [],
+                    });
+                }
+
+                const mutual = mutualDebtsMap.get(otherUserId)!;
+
+                if (debtorId === userId) {
+                    // I owe them
+                    mutual.iOwe = value.amount;
+                    mutual.mySettlementIds = value.settlementIds;
+                } else {
+                    // They owe me
+                    mutual.theyOwe = value.amount;
+                    mutual.theirSettlementIds = value.settlementIds;
+                }
+            }
+        }
+
+        // Calculate net amounts and fetch user names
+        const otherUserIds = Array.from(mutualDebtsMap.keys());
+
+        if (otherUserIds.length === 0) {
+            return { mutualDebts: [] };
+        }
+
+        const users = await prisma.user.findMany({
+            where: { id: { in: otherUserIds } },
+            select: { id: true, name: true, email: true },
+        });
+        const userMap = new Map(users.map(u => [u.id, u]));
+
+        const mutualDebts: MutualDebt[] = [];
+
+        for (const [otherId, mutual] of mutualDebtsMap.entries()) {
+            // Only include if both directions have debt
+            if (mutual.iOwe > 0 && mutual.theyOwe > 0) {
+                const user = userMap.get(otherId);
+                mutual.userName = user?.name || 'Unknown';
+                mutual.userEmail = user?.email || '';
+                mutual.netAmount = mutual.theyOwe - mutual.iOwe; // Positive = they owe me net
+                mutualDebts.push(mutual);
+            }
+        }
+
+        // Sort by largest potential savings (min of the two debts)
+        mutualDebts.sort((a, b) => {
+            const aSavings = Math.min(a.iOwe, a.theyOwe);
+            const bSavings = Math.min(b.iOwe, b.theyOwe);
+            return bSavings - aSavings;
+        });
+
+        return { mutualDebts };
+    } catch (error) {
+        console.error("Error detecting mutual debts:", error);
+        return { mutualDebts: [] };
+    }
+}
+
+interface ProposeAgreementInput {
+    teamId: string;
+    responderId: string;
+    proposerOwes: number;
+    responderOwes: number;
+    settlementIds: string[];
+}
+
+// Propose a settlement agreement to another user
+export async function proposeSettlementAgreement(input: ProposeAgreementInput) {
+    try {
+        const { userId } = await auth();
+        if (!userId) {
+            return { error: "Not authenticated" };
+        }
+
+        // Verify team membership
+        const membership = await verifyTeamMembership(input.teamId, userId);
+        if (!membership) {
+            return { error: "Not a member of this team" };
+        }
+
+        // Check if there's already a pending agreement between these users
+        const existingAgreement = await prisma.settlementAgreement.findFirst({
+            where: {
+                team_id: input.teamId,
+                status: AgreementStatus.pending,
+                OR: [
+                    { proposer_id: userId, responder_id: input.responderId },
+                    { proposer_id: input.responderId, responder_id: userId },
+                ],
+            },
+        });
+
+        if (existingAgreement) {
+            return { error: "There's already a pending settlement agreement with this person" };
+        }
+
+        const netAmount = input.responderOwes - input.proposerOwes;
+
+        // Create the agreement
+        const agreement = await prisma.$transaction(async (tx) => {
+            const newAgreement = await tx.settlementAgreement.create({
+                data: {
+                    team_id: input.teamId,
+                    proposer_id: userId,
+                    responder_id: input.responderId,
+                    proposer_owes: input.proposerOwes,
+                    responder_owes: input.responderOwes,
+                    net_amount: netAmount,
+                    settlement_ids: input.settlementIds,
+                    status: AgreementStatus.pending,
+                },
+            });
+
+            // Get user names for activity log
+            const [proposer, responder] = await Promise.all([
+                tx.user.findUnique({ where: { id: userId }, select: { name: true } }),
+                tx.user.findUnique({ where: { id: input.responderId }, select: { name: true } }),
+            ]);
+
+            await tx.activityLog.create({
+                data: {
+                    team_id: input.teamId,
+                    user_id: userId,
+                    action: "PROPOSED_SETTLEMENT_AGREEMENT",
+                    details: `Proposed settlement agreement with ${responder?.name || 'Unknown'}: Cancel ₱${Math.min(input.proposerOwes, input.responderOwes).toFixed(2)} mutual debt`,
+                },
+            });
+
+            return newAgreement;
+        });
+
+        await invalidateTeamCache(input.teamId, userId);
+        revalidatePath("/dashboard/payments");
+
+        return { success: true, agreement };
+    } catch (error) {
+        console.error("Error proposing settlement agreement:", error);
+        return { error: "Failed to propose settlement agreement" };
+    }
+}
+
+// Respond to a settlement agreement (accept or reject)
+export async function respondToSettlementAgreement(agreementId: string, accept: boolean) {
+    try {
+        const { userId } = await auth();
+        if (!userId) {
+            return { error: "Not authenticated" };
+        }
+
+        const agreement = await prisma.settlementAgreement.findUnique({
+            where: { id: agreementId },
+            include: {
+                team: { select: { name: true } },
+            },
+        });
+
+        if (!agreement) {
+            return { error: "Agreement not found" };
+        }
+
+        if (agreement.responder_id !== userId) {
+            return { error: "Only the responder can accept or reject this agreement" };
+        }
+
+        if (agreement.status !== AgreementStatus.pending) {
+            return { error: "This agreement is no longer pending" };
+        }
+
+        await prisma.$transaction(async (tx) => {
+            if (accept) {
+                // Mark all involved settlements as paid
+                await tx.settlement.updateMany({
+                    where: { id: { in: agreement.settlement_ids } },
+                    data: {
+                        status: Status.paid,
+                        paid_at: new Date(),
+                        payment_method: null, // Settlement agreement
+                    },
+                });
+
+                // If there's a net amount, create a new settlement for the difference
+                if (agreement.net_amount !== 0) {
+                    // Determine who owes whom the net amount
+                    const debtorId = agreement.net_amount > 0 ? agreement.responder_id : agreement.proposer_id;
+                    const creditorId = agreement.net_amount > 0 ? agreement.proposer_id : agreement.responder_id;
+                    const netAmountAbs = Math.abs(agreement.net_amount);
+
+                    // Create a new expense for the net amount
+                    const netExpense = await tx.expense.create({
+                        data: {
+                            description: `Settlement Agreement Net Balance`,
+                            amount: netAmountAbs,
+                            paid_by: creditorId,
+                            currency: "PHP",
+                            category: "Settlement",
+                            team_id: agreement.team_id,
+                            note: `Net balance from settlement agreement ${agreement.id.slice(0, 8)}`,
+                        },
+                    });
+
+                    // Create settlement for the net amount
+                    await tx.settlement.create({
+                        data: {
+                            expense_id: netExpense.id,
+                            owed_by: debtorId,
+                            amount_owed: netAmountAbs,
+                            status: Status.pending,
+                        },
+                    });
+                }
+
+                // Update agreement status
+                await tx.settlementAgreement.update({
+                    where: { id: agreementId },
+                    data: {
+                        status: AgreementStatus.accepted,
+                        responded_at: new Date(),
+                    },
+                });
+
+                // Get names for activity log
+                const proposer = await tx.user.findUnique({
+                    where: { id: agreement.proposer_id },
+                    select: { name: true }
+                });
+
+                await tx.activityLog.create({
+                    data: {
+                        team_id: agreement.team_id,
+                        user_id: userId,
+                        action: "ACCEPTED_SETTLEMENT_AGREEMENT",
+                        details: `Accepted settlement agreement with ${proposer?.name || 'Unknown'}: Cancelled ₱${Math.min(agreement.proposer_owes, agreement.responder_owes).toFixed(2)} mutual debt`,
+                    },
+                });
+            } else {
+                // Reject the agreement
+                await tx.settlementAgreement.update({
+                    where: { id: agreementId },
+                    data: {
+                        status: AgreementStatus.rejected,
+                        responded_at: new Date(),
+                    },
+                });
+
+                const proposer = await tx.user.findUnique({
+                    where: { id: agreement.proposer_id },
+                    select: { name: true }
+                });
+
+                await tx.activityLog.create({
+                    data: {
+                        team_id: agreement.team_id,
+                        user_id: userId,
+                        action: "REJECTED_SETTLEMENT_AGREEMENT",
+                        details: `Rejected settlement agreement from ${proposer?.name || 'Unknown'}`,
+                    },
+                });
+            }
+        });
+
+        await invalidateTeamCache(agreement.team_id, userId);
+        revalidatePath("/dashboard/payments");
+
+        return { success: true, accepted: accept };
+    } catch (error) {
+        console.error("Error responding to settlement agreement:", error);
+        return { error: "Failed to respond to settlement agreement" };
+    }
+}
+
+interface SettlementAgreementWithUsers {
+    id: string;
+    proposerId: string;
+    proposerName: string;
+    responderId: string;
+    responderName: string;
+    proposerOwes: number;
+    responderOwes: number;
+    netAmount: number;
+    status: AgreementStatus;
+    proposedAt: Date;
+    respondedAt: Date | null;
+    isProposer: boolean; // Is current user the proposer?
+}
+
+// Get settlement agreements for the current user
+export async function getSettlementAgreements(teamId: string): Promise<{
+    pending: SettlementAgreementWithUsers[];
+    history: SettlementAgreementWithUsers[];
+}> {
+    try {
+        const { userId } = await auth();
+        if (!userId) {
+            return { pending: [], history: [] };
+        }
+
+        const agreements = await prisma.settlementAgreement.findMany({
+            where: {
+                team_id: teamId,
+                OR: [
+                    { proposer_id: userId },
+                    { responder_id: userId },
+                ],
+            },
+            orderBy: { proposed_at: 'desc' },
+        });
+
+        // Collect all user IDs
+        const userIds = new Set<string>();
+        agreements.forEach(a => {
+            userIds.add(a.proposer_id);
+            userIds.add(a.responder_id);
+        });
+
+        const users = await prisma.user.findMany({
+            where: { id: { in: Array.from(userIds) } },
+            select: { id: true, name: true },
+        });
+        const userMap = new Map(users.map(u => [u.id, u.name]));
+
+        const transformAgreement = (a: typeof agreements[0]): SettlementAgreementWithUsers => ({
+            id: a.id,
+            proposerId: a.proposer_id,
+            proposerName: userMap.get(a.proposer_id) || 'Unknown',
+            responderId: a.responder_id,
+            responderName: userMap.get(a.responder_id) || 'Unknown',
+            proposerOwes: a.proposer_owes,
+            responderOwes: a.responder_owes,
+            netAmount: a.net_amount,
+            status: a.status,
+            proposedAt: a.proposed_at,
+            respondedAt: a.responded_at,
+            isProposer: a.proposer_id === userId,
+        });
+
+        const pending = agreements
+            .filter(a => a.status === AgreementStatus.pending)
+            .map(transformAgreement);
+
+        const history = agreements
+            .filter(a => a.status !== AgreementStatus.pending)
+            .slice(0, 10) // Limit history to last 10
+            .map(transformAgreement);
+
+        return { pending, history };
+    } catch (error) {
+        console.error("Error fetching settlement agreements:", error);
+        return { pending: [], history: [] };
     }
 }
