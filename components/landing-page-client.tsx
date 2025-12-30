@@ -73,103 +73,101 @@ export function LandingPageClient({ stats }: { stats: StatsData }) {
             </motion.header>
 
             {/* Hero Section */}
-            <section className="relative pt-32 pb-20 md:pt-48 md:pb-32 px-6">
-                <motion.div
-                    style={{ opacity, scale }}
-                    className="container mx-auto max-w-5xl text-center"
-                >
+            <section className="relative min-h-screen flex flex-col justify-between pt-24 px-6 border-b border-border bg-background overflow-hidden">
+                <div className="container mx-auto max-w-[1400px] relative flex-1 flex flex-col justify-center">
+                    {/* Technical Accents */}
+                    <div className="absolute top-0 left-0 w-[1px] h-32 bg-border -mt-32 hidden md:block" />
+                    <div className="absolute top-0 right-0 w-[1px] h-32 bg-border -mt-32 hidden md:block" />
+
                     <motion.div
                         initial="initial"
                         animate="animate"
                         variants={stagger}
-                        className="space-y-8"
+                        className="space-y-12 text-left relative z-10"
                     >
-                        <motion.div variants={fadeInUp} className="flex justify-center">
-                            <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-secondary/50 border border-white/10 text-sm font-medium text-secondary-foreground backdrop-blur-sm">
-                                <span className="relative flex h-2 w-2">
+                        <motion.div variants={fadeInUp} className="flex justify-start items-center gap-4">
+                            <span className="inline-flex items-center gap-2 px-3 py-1 rounded-none border border-primary/20 text-xs font-mono uppercase tracking-widest text-primary bg-primary/5">
+                                <span className="relative flex h-1.5 w-1.5">
                                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+                                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-primary"></span>
                                 </span>
-                                Split Bills with Anyone
+                                System Operational
                             </span>
+                            <div className="h-[1px] w-24 bg-border" />
                         </motion.div>
 
-                        <motion.h1 variants={fadeInUp} className="text-5xl md:text-7xl lg:text-8xl font-bold tracking-tight leading-[1.1]">
-                            Split Expenses, <br />
-                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-purple-400">
-                                Stay Connected.
-                            </span>
+                        <motion.h1 variants={fadeInUp} className="text-[12vw] md:text-[8rem] lg:text-[10rem] font-bold tracking-tighter leading-[0.8] text-foreground -ml-1 select-none">
+                            SPLIT<br />
+                            <span className="text-muted-foreground/20">EXPENSES.</span>
                         </motion.h1>
 
-                        <motion.p variants={fadeInUp} className="text-xl md:text-2xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-                            The minimalist expense tracker for everyone. Whether you're splitting rent with roommates, dining out with friends, or traveling with family — track spending and settle up without the awkwardness.
-                        </motion.p>
+                        <div className="flex flex-col md:flex-row gap-12 md:items-end justify-between mt-8">
+                            <motion.p variants={fadeInUp} className="text-xl md:text-2xl text-muted-foreground max-w-xl leading-relaxed font-light">
+                                <span className="text-primary font-mono mr-2">01 //</span>
+                                The minimalist settlement protocol for groups. No clutter, just raw tracking efficiency.
+                            </motion.p>
 
-                        <motion.div variants={fadeInUp} className="flex flex-col sm:flex-row gap-4 justify-center pt-4">
-                            <Button size="lg" asChild className="rounded-full px-8 h-12 text-base bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20 transition-all hover:scale-105">
-                                <Link href="/register">
-                                    Start for Free <ArrowRight className="ml-2 w-4 h-4" />
-                                </Link>
-                            </Button>
-                            <Button size="lg" variant="outline" asChild className="rounded-full px-8 h-12 text-base border-white/10 hover:bg-white/5 transition-all hover:scale-105">
-                                <Link href="#how-it-works">Learn More</Link>
-                            </Button>
-                        </motion.div>
-
-                        <LandingStats initialStats={stats} />
+                            <motion.div variants={fadeInUp} className="flex flex-col gap-4 min-w-[300px]">
+                                <Button size="lg" asChild className="rounded-none px-8 h-16 text-lg bg-primary hover:bg-primary/90 text-primary-foreground transition-all flex justify-between group">
+                                    <Link href="/register">
+                                        Get Started <ArrowRight className="w-5 h-5 group-hover:translate-x-2 transition-transform" />
+                                    </Link>
+                                </Button>
+                                <div className="flex gap-4">
+                                    <Button size="lg" variant="outline" asChild className="flex-1 rounded-none h-14 border-border hover:bg-secondary/50 text-muted-foreground uppercase tracking-wider text-sm">
+                                        <Link href="#how-it-works">How It Works</Link>
+                                    </Button>
+                                    <Button size="lg" variant="outline" asChild className="flex-1 rounded-none h-14 border-border hover:bg-secondary/50 text-muted-foreground uppercase tracking-wider text-sm">
+                                        <Link href="#features">Features</Link>
+                                    </Button>
+                                </div>
+                            </motion.div>
+                        </div>
                     </motion.div>
-                </motion.div>
+                </div>
 
-                {/* Abstract Background Elements */}
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 -z-10 w-[1000px] h-[1000px] opacity-20 pointer-events-none">
-                    <motion.div
-                        style={{ y: useTransform(scrollYProgress, [0, 1], [0, -200]) }}
-                        className="absolute inset-0 bg-gradient-to-tr from-primary/30 to-purple-500/30 rounded-full blur-3xl animate-pulse duration-[10s]"
-                    />
+                <div className="w-full border-t border-border">
+                    <LandingStats initialStats={stats} />
                 </div>
             </section>
 
-            {/* Features Section */}
-            <ScrollFadeSection id="features" className="py-24 md:py-32 relative">
-                <div className="container mx-auto px-6">
+            {/* Features Section - Vooma Style Vertical List */}
+            <section id="features" className="py-24 md:py-32 relative bg-background">
+                <div className="container mx-auto px-6 max-w-6xl">
                     <motion.div
                         initial={{ opacity: 0, y: 40 }}
                         whileInView={{ opacity: 1, y: 0 }}
                         viewport={{ once: true }}
                         transition={{ duration: 0.8 }}
-                        className="text-center mb-20"
+                        className="mb-16 md:mb-24"
                     >
-                        <h2 className="text-3xl md:text-5xl font-bold mb-6 tracking-tight">Everything You Need</h2>
-                        <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-                            Powerful features wrapped in a beautiful, intuitive interface.
-                        </p>
+                        <span className="block text-primary font-mono text-sm tracking-wider uppercase mb-4">Features</span>
+                        <h2 className="text-4xl md:text-6xl font-bold tracking-tighter leading-none">Everything you need.<br />Nothing you don't.</h2>
                     </motion.div>
 
-                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-7xl mx-auto">
+                    <div className="flex flex-col border-t border-border">
                         {features.map((feature, index) => (
-                            <FeatureCard key={index} feature={feature} index={index} />
+                            <FeatureRow key={index} feature={feature} index={index} />
                         ))}
                     </div>
                 </div>
-            </ScrollFadeSection>
+            </section>
 
             {/* How It Works Section */}
-            <ScrollFadeSection id="how-it-works" className="py-24 md:py-32 bg-secondary/20">
+            <ScrollFadeSection id="how-it-works" className="py-24 md:py-32 bg-background border-t border-border">
                 <div className="container mx-auto px-6">
                     <motion.div
                         initial={{ opacity: 0, y: 40 }}
                         whileInView={{ opacity: 1, y: 0 }}
                         viewport={{ once: true }}
                         transition={{ duration: 0.8 }}
-                        className="text-center mb-20"
+                        className="text-left mb-20 max-w-4xl"
                     >
-                        <h2 className="text-3xl md:text-5xl font-bold mb-6 tracking-tight">How It Works</h2>
-                        <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-                            Get started in three simple steps.
-                        </p>
+                        <span className="block text-primary font-mono text-sm tracking-wider uppercase mb-4">Process</span>
+                        <h2 className="text-4xl md:text-6xl font-bold tracking-tighter leading-none">Simple steps.<br />Instant results.</h2>
                     </motion.div>
 
-                    <div className="grid md:grid-cols-3 gap-12 max-w-6xl mx-auto">
+                    <div className="grid md:grid-cols-3 gap-12 md:gap-8 max-w-6xl mx-auto">
                         {steps.map((step, index) => (
                             <StepCard key={index} step={step} index={index} />
                         ))}
@@ -178,50 +176,46 @@ export function LandingPageClient({ stats }: { stats: StatsData }) {
             </ScrollFadeSection>
 
             {/* CTA Section */}
-            <section className="py-24 md:py-32 relative overflow-hidden">
-                <div className="absolute inset-0 bg-primary/5 -z-10" />
+            <section className="py-24 md:py-32 relative overflow-hidden bg-background border-t border-border">
                 <div className="container mx-auto px-6 text-center">
                     <motion.div
-                        initial={{ opacity: 0, scale: 0.9 }}
+                        initial={{ opacity: 0, scale: 0.95 }}
                         whileInView={{ opacity: 1, scale: 1 }}
                         viewport={{ once: true }}
                         transition={{ duration: 0.8 }}
                     >
-                        <h2 className="text-4xl md:text-6xl font-bold mb-8 tracking-tight">
-                            Ready to PayUp?
+                        <h2 className="text-5xl md:text-8xl font-bold mb-8 tracking-tighter">
+                            Ready?
                         </h2>
-                        <p className="text-xl text-muted-foreground mb-10 max-w-2xl mx-auto">
-                            Join thousands of groups managing their shared expenses the smart way.
+                        <p className="text-xl md:text-2xl text-muted-foreground mb-12 max-w-2xl mx-auto">
+                            Join thousands managing expenses the smart way.
                         </p>
-                        <Button size="lg" asChild className="rounded-full px-10 h-14 text-lg bg-primary hover:bg-primary/90 text-primary-foreground shadow-xl shadow-primary/20 transition-all hover:scale-105">
-                            <Link href="/register">Get Started Now</Link>
+                        <Button size="lg" asChild className="rounded-none px-12 h-16 text-xl bg-primary hover:bg-primary/90 text-primary-foreground transition-all">
+                            <Link href="/register">Get Started</Link>
                         </Button>
                     </motion.div>
                 </div>
             </section>
 
             {/* Footer */}
-            <footer className="border-t border-white/10 py-12 bg-background">
+            <footer className="border-t border-border py-12 bg-background">
                 <div className="container mx-auto px-6">
                     <div className="flex flex-col md:flex-row items-center justify-between gap-6">
                         <div className="flex items-center gap-2">
-                            <div className="bg-primary p-1.5 rounded-lg">
+                            <div className="bg-primary p-1 rounded-none">
                                 <DollarSign className="w-4 h-4 text-primary-foreground" />
                             </div>
                             <span className="text-lg font-bold tracking-tight">PayUp</span>
                         </div>
-                        <p className="text-sm text-muted-foreground">
-                            © 2025 PayUp. Built for everyone who shares.
+                        <p className="text-sm text-muted-foreground font-mono">
+                            © 2025 PayUp.
                         </p>
                         <div className="flex gap-8">
-                            <Link href="/privacy" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                            <Link href="/privacy" className="text-sm text-muted-foreground hover:text-primary transition-colors font-medium">
                                 Privacy
                             </Link>
-                            <Link href="/terms" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                            <Link href="/terms" className="text-sm text-muted-foreground hover:text-primary transition-colors font-medium">
                                 Terms
-                            </Link>
-                            <Link href="/contact" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                                Contact
                             </Link>
                         </div>
                     </div>
@@ -242,25 +236,25 @@ interface Step {
     description: string;
 }
 
-function FeatureCard({ feature, index }: { feature: Feature, index: number }) {
+function FeatureRow({ feature, index }: { feature: Feature, index: number }) {
     return (
         <motion.div
-            initial={{ opacity: 0, y: 40 }}
+            initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
+            viewport={{ once: true, margin: "-100px" }}
             transition={{ duration: 0.5, delay: index * 0.1 }}
-            whileHover={{ y: -5 }}
-            className="group p-8 rounded-3xl bg-card border border-white/5 hover:border-primary/20 transition-colors relative overflow-hidden"
+            className="group py-12 border-b border-border flex flex-col md:flex-row gap-8 md:items-center justify-between hover:bg-secondary/5 transition-colors px-4 -mx-4 rounded-xl md:rounded-none md:mx-0 md:px-0"
         >
-            <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-            <div className="relative z-10">
-                <div className="bg-secondary/50 w-14 h-14 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-500">
-                    <feature.icon className="w-7 h-7 text-primary" />
-                </div>
-                <h3 className="text-xl font-bold mb-3">{feature.title}</h3>
-                <p className="text-muted-foreground leading-relaxed">
+            <div className="flex flex-col gap-4 max-w-2xl">
+                <h3 className="text-3xl md:text-4xl font-bold tracking-tight text-foreground group-hover:text-primary transition-colors flex items-center gap-4">
+                    {feature.title} <ArrowRight className="w-6 h-6 opacity-0 -translate-x-4 group-hover:opacity-100 group-hover:translate-x-0 transition-all text-primary" />
+                </h3>
+                <p className="text-lg text-muted-foreground leading-relaxed">
                     {feature.description}
                 </p>
+            </div>
+            <div className="shrink-0 text-muted-foreground/30 group-hover:text-primary/20 transition-colors">
+                <feature.icon className="w-12 h-12 md:w-24 md:h-24 stroke-[1.5]" />
             </div>
         </motion.div>
     );
@@ -273,17 +267,13 @@ function StepCard({ step, index }: { step: Step, index: number }) {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.5, delay: index * 0.2 }}
-            className="text-center relative"
+            className="text-left relative pl-8 border-l border-border md:border-l-0 md:pl-0 md:text-left"
         >
-            <div className="w-24 h-24 rounded-full bg-secondary/30 border border-white/10 flex items-center justify-center text-3xl font-bold mx-auto mb-8 relative z-10">
-                {index + 1}
-                <div className="absolute inset-0 rounded-full bg-primary/10 animate-pulse" />
+            <div className="text-6xl font-bold text-muted-foreground/20 mb-6 font-mono">
+                0{index + 1}
             </div>
-            {index !== 2 && (
-                <div className="hidden md:block absolute top-12 left-1/2 w-full h-[2px] bg-gradient-to-r from-transparent via-border to-transparent -z-0" />
-            )}
             <h3 className="text-2xl font-bold mb-4">{step.title}</h3>
-            <p className="text-muted-foreground leading-relaxed max-w-xs mx-auto">
+            <p className="text-muted-foreground leading-relaxed max-w-xs">
                 {step.description}
             </p>
         </motion.div>

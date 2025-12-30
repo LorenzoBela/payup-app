@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 
 interface StatsData {
@@ -11,63 +10,63 @@ interface StatsData {
 }
 
 export function LandingStats({ initialStats }: { initialStats: StatsData }) {
-    // We can use the passed stats directly, or fetch if we wanted hydration mismatch handling
-    // For now, simple display is fine.
-
-    const fadeInUp = {
-        initial: { opacity: 0, y: 20 },
-        animate: { opacity: 1, y: 0 },
-        transition: { duration: 0.6, ease: "easeOut" }
-    };
-
     return (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto mt-8 px-4">
-            <StatItem
-                label="Active Teams"
-                value={initialStats.teamCount}
-                delay={0.1}
-            />
-            <StatItem
-                label="Users"
-                value={initialStats.userCount}
-                delay={0.2}
-            />
-            <StatItem
-                label="Expenses Tracked"
-                value={initialStats.expenseCount}
-                delay={0.3}
-            />
-            <StatItem
-                label="Total Expenses Tracked"
-                value={initialStats.totalExpenseAmount}
-                delay={0.4}
-                isCurrency={true}
-            />
+        <div className="w-full border-y border-border bg-background/50 backdrop-blur-sm">
+            <div className="flex flex-col md:flex-row divide-y md:divide-y-0 md:divide-x divide-border">
+                <StatTickerItem
+                    label="Active Teams"
+                    value={initialStats.teamCount}
+                    delay={0}
+                />
+                <StatTickerItem
+                    label="Total Users"
+                    value={initialStats.userCount}
+                    delay={0.1}
+                />
+                <StatTickerItem
+                    label="Expenses Logged"
+                    value={initialStats.expenseCount}
+                    delay={0.2}
+                />
+                <StatTickerItem
+                    label="Volume Processed"
+                    value={initialStats.totalExpenseAmount}
+                    delay={0.3}
+                    isCurrency={true}
+                />
+            </div>
         </div>
     );
 }
 
-function StatItem({ label, value, delay, isCurrency = false }: { label: string, value: number, delay: number, isCurrency?: boolean }) {
+function StatTickerItem({ label, value, delay, isCurrency = false }: { label: string, value: number, delay: number, isCurrency?: boolean }) {
     const formatValue = () => {
         if (isCurrency) {
             return `₱${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
         }
-        return `${value.toLocaleString()}${value > 1000 ? "+" : ""}`;
+        return value.toLocaleString();
     };
 
     return (
         <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay, ease: "easeOut" }}
-            className="flex flex-col items-center justify-center p-6 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.5, delay }}
+            className="flex-1 px-6 py-4 flex items-center justify-between md:justify-start gap-4 group hover:bg-secondary/5 transition-colors"
         >
-            <span className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-primary to-purple-400 bg-clip-text text-transparent mb-2">
-                {formatValue()}
-            </span>
-            <span className="text-sm md:text-base text-muted-foreground font-medium text-center">
-                {label}
-            </span>
+            <div className="flex flex-col">
+                <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono mb-1 group-hover:text-primary transition-colors">
+                    {label}
+                </span>
+                <span className="text-2xl md:text-3xl font-medium font-mono tracking-tight text-foreground flex items-center gap-2">
+                    {formatValue()}
+                    {/* Pulsing Dot for "Live" feel */}
+                    <span className="relative flex h-1.5 w-1.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-primary"></span>
+                    </span>
+                </span>
+            </div>
         </motion.div>
     );
 }
