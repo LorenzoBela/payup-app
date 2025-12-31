@@ -181,7 +181,7 @@ export default function PrivacyPage() {
                             <span className="text-lg font-bold tracking-tight">PayUp</span>
                         </div>
                         <p className="text-sm text-muted-foreground">
-                            © 2025 PayUp. Built for thesis teams.
+                            © 2025 PayUp. Built for everyone.
                         </p>
                         <div className="flex gap-8">
                             <Link href="/privacy" className="text-sm text-foreground font-medium transition-colors">

@@ -217,6 +217,9 @@ export function LandingPageClient({ stats }: { stats: StatsData }) {
                             <Link href="/terms" className="text-sm text-muted-foreground hover:text-primary transition-colors font-medium">
                                 Terms
                             </Link>
+                            <Link href="/contact" className="text-sm text-muted-foreground hover:text-primary transition-colors font-medium">
+                                Contact
+                            </Link>
                         </div>
                     </div>
                 </div>

@@ -130,7 +130,7 @@ export default function TeamPage() {
               <CardHeader>
                 <CardTitle className="text-2xl text-card-foreground">Create Your Team</CardTitle>
                 <CardDescription className="text-muted-foreground">
-                  Set up a new team and invite your thesis group members
+                  Set up a new team and invite your team members
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -143,7 +143,7 @@ export default function TeamPage() {
                       <Input
                         id="teamName"
                         type="text"
-                        placeholder="e.g., Thesis Group 2025"
+                        placeholder="e.g., Team 2025"
                         value={teamName}
                         onChange={(e) => setTeamName(e.target.value)}
                         required
@@ -313,7 +313,7 @@ export default function TeamPage() {
       <footer className="border-t-2 border-border py-6 bg-background">
         <div className="container mx-auto px-4 text-center">
           <p className="text-sm text-muted-foreground">
-            © 2025 PayUp. Built for thesis teams.
+            © 2025 PayUp. Built for everyone.
           </p>
         </div>
       </footer>

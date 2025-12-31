@@ -20,8 +20,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PayUp - Split Expenses with Your Thesis Team",
-  description: "A minimalist expense tracker for thesis teams. Track spending, split bills fairly, and settle up with ease.",
+  title: "PayUp - Split Expenses with Your Team",
+  description: "A minimalist expense tracker for everyone. Track spending, split bills fairly, and settle up with ease.",
 };
 
 export default function RootLayout({

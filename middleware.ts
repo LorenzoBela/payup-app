@@ -5,6 +5,9 @@ const isPublicRoute = createRouteMatcher([
   '/',
   '/signin(.*)',
   '/register(.*)',
+  '/contact(.*)',
+  '/terms(.*)',
+  '/privacy(.*)',
   '/api/webhooks/clerk(.*)',
   '/api/uploadthing(.*)', // specific public api routes if any
   '/api/test-email'
