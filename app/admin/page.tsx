@@ -45,9 +45,9 @@ export default async function AdminDashboard() {
             <AdvancedStatsOverview stats={stats} />
 
             {/* Quick Actions & Recent Activity Row */}
-            <div className="grid gap-4 grid-cols-1 md:grid-cols-2 overflow-hidden">
+            <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
                 {/* Quick Actions */}
-                <Card className="overflow-hidden">
+                <Card>
                     <CardHeader className="p-4 sm:p-6">
                         <CardTitle>Quick Actions</CardTitle>
                         <CardDescription>Navigate to management pages</CardDescription>
@@ -102,7 +102,7 @@ export default async function AdminDashboard() {
                 </Card>
 
                 {/* Recent Activity */}
-                <Card className="overflow-hidden">
+                <Card>
                     <CardHeader className="p-4 sm:p-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                             <CardTitle>Recent Activity</CardTitle>

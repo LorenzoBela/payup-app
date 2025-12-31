@@ -21,12 +21,12 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     }
 
     return (
-        <div className="min-h-screen bg-background">
+        <div className="h-screen bg-background overflow-hidden">
             <AdminSidebar collapsed={collapsed} onCollapse={setCollapsed} />
 
             <div
                 className={cn(
-                    "transition-all duration-300",
+                    "transition-all duration-300 h-full overflow-y-auto",
                     collapsed ? "md:ml-[70px]" : "md:ml-[240px]"
                 )}
             >
