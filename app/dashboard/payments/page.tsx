@@ -253,7 +253,37 @@ export default function PaymentsPage() {
         isMonthlyGroup: boolean;
         settlements: PendingSettlement[];
         totalAmount: number;
+        // Added to distinguish between "Item Group" (grouping months of same item) vs "Month Group" (grouping items of same month)
+        groupType?: 'item' | 'month';
     }
+
+    const groupSettlementsByMonth = (settlements: PendingSettlement[]): SettlementGroup[] => {
+        const groups: Map<string, SettlementGroup> = new Map();
+
+        settlements.forEach(settlement => {
+            const date = settlement.deadline ? new Date(settlement.deadline) : new Date(settlement.expense_date);
+            // Key by Year-Month for sorting/grouping
+            const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+            const monthName = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+            if (!groups.has(key)) {
+                groups.set(key, {
+                    key,
+                    baseName: monthName,
+                    isMonthlyGroup: true,
+                    groupType: 'month',
+                    settlements: [],
+                    totalAmount: 0,
+                });
+            }
+            const group = groups.get(key)!;
+            group.settlements.push(settlement);
+            group.totalAmount += settlement.amount;
+        });
+
+        // Sort by date key (oldest first)
+        return Array.from(groups.values()).sort((a, b) => a.key.localeCompare(b.key));
+    };
 
     const groupSettlements = (settlements: PendingSettlement[]): SettlementGroup[] => {
         const groups: Map<string, SettlementGroup> = new Map();
@@ -276,6 +306,7 @@ export default function PaymentsPage() {
                         key,
                         baseName: baseName || settlement.expense_description,
                         isMonthlyGroup: true,
+                        groupType: 'item',
                         settlements: [],
                         totalAmount: 0,
                     });
@@ -335,6 +366,12 @@ export default function PaymentsPage() {
             <div className="grid gap-4">
                 {groups.map((group) => {
                     const isOpen = openStates[group.personId] ?? false;
+
+                    // Determine which grouping function to use
+                    // For Payables: Group by MONTH (so I see "January", "February" and can pay all)
+                    // For Receivables: Group by ITEM (so I see "Pump", "Sensors" and can collect) - or whatever gives better overview
+                    const processedGroups = groupSettlementsByMonth(group.settlements);
+
                     return (
                         <Card key={group.personId} className="overflow-hidden border shadow-sm">
                             <Collapsible open={isOpen} onOpenChange={() => toggleOpen(group.personId)}>
@@ -386,7 +423,7 @@ export default function PaymentsPage() {
                                                     setBatchPaymentModalOpen(true);
                                                 }}
                                             >
-                                                Pay All
+                                                Pay Total
                                             </Button>
                                         ) : (
                                             // Collect All - Keep simple dialog for creditors
@@ -398,7 +435,7 @@ export default function PaymentsPage() {
                                                         disabled={processingId !== null}
                                                         className="border-green-600 text-green-600 hover:bg-green-50 shrink-0"
                                                     >
-                                                        Collect
+                                                        Collect Also
                                                     </Button>
                                                 </DialogTrigger>
                                                 <DialogContent>
@@ -444,61 +481,112 @@ export default function PaymentsPage() {
                                 <CollapsibleContent>
                                     <div className="border-t bg-muted/5 px-2 sm:px-4 py-2">
                                         <div className="space-y-2">
-                                            {groupSettlements(group.settlements).map((settlementGroup) => (
+                                            {processedGroups.map((settlementGroup) => (
                                                 <div key={settlementGroup.key}>
                                                     {settlementGroup.isMonthlyGroup ? (
-                                                        // Monthly group with nested collapsible
+                                                        // Monthly group (Collapsible)
                                                         <Collapsible
                                                             open={monthlyOpenStates[settlementGroup.key] ?? false}
                                                             onOpenChange={() => toggleMonthlyOpen(settlementGroup.key)}
                                                         >
                                                             <div className="bg-card/50 rounded-lg border p-2 sm:p-3">
-                                                                <CollapsibleTrigger asChild>
-                                                                    <div className="flex items-center justify-between cursor-pointer">
-                                                                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                                                                <div className="flex items-center justify-between">
+                                                                    <CollapsibleTrigger asChild>
+                                                                        <div className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer">
                                                                             <div className="p-1.5 bg-orange-100 dark:bg-orange-900/30 rounded text-orange-600">
                                                                                 <Calendar className="w-3 h-3" />
                                                                             </div>
                                                                             <div className="min-w-0 flex-1">
                                                                                 <p className="font-medium text-sm truncate">{settlementGroup.baseName}</p>
                                                                                 <p className="text-xs text-muted-foreground">
-                                                                                    {settlementGroup.settlements.length} monthly payment{settlementGroup.settlements.length !== 1 ? 's' : ''}
+                                                                                    {settlementGroup.settlements.length} item{settlementGroup.settlements.length !== 1 ? 's' : ''}
                                                                                 </p>
                                                                             </div>
-                                                                        </div>
-                                                                        <div className="flex items-center gap-2">
-                                                                            <span className={`font-semibold text-sm ${type === 'payable' ? 'text-red-600' : 'text-green-600'}`}>
-                                                                                ₱{settlementGroup.totalAmount.toFixed(0)}
-                                                                            </span>
                                                                             {monthlyOpenStates[settlementGroup.key] ?
                                                                                 <ChevronUp className="w-4 h-4 text-muted-foreground" /> :
                                                                                 <ChevronDown className="w-4 h-4 text-muted-foreground" />
                                                                             }
                                                                         </div>
+                                                                    </CollapsibleTrigger>
+                                                                    {/* Group Actions (Pay All for Month) */}
+                                                                    <div className="flex items-center gap-3 pl-2">
+                                                                        <span className={`font-semibold text-sm ${type === 'payable' ? 'text-red-600' : 'text-green-600'}`}>
+                                                                            ₱{settlementGroup.totalAmount.toFixed(0)}
+                                                                        </span>
+                                                                        {type === 'payable' ? (
+                                                                            <Button
+                                                                                size="sm"
+                                                                                className="h-7 text-xs px-2"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    setBatchPaymentData({
+                                                                                        settlements: settlementGroup.settlements.map(s => ({
+                                                                                            id: s.id,
+                                                                                            amount: s.amount,
+                                                                                            expense_description: s.expense_description
+                                                                                        })),
+                                                                                        recipientName: group.person.name,
+                                                                                        recipientGcash: group.person.gcash_number,
+                                                                                        totalAmount: settlementGroup.totalAmount
+                                                                                    });
+                                                                                    setBatchPaymentModalOpen(true);
+                                                                                }}
+                                                                            >
+                                                                                Pay Group
+                                                                            </Button>
+                                                                        ) : (
+                                                                            <Button
+                                                                                size="sm"
+                                                                                variant="outline"
+                                                                                className="h-7 text-xs px-2 border-green-600 text-green-600 hover:bg-green-50"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    handleBatchAction(settlementGroup.settlements.map(s => s.id), 'collect');
+                                                                                }}
+                                                                                disabled={processingId !== null}
+                                                                            >
+                                                                                Accept Group
+                                                                            </Button>
+                                                                        )}
                                                                     </div>
-                                                                </CollapsibleTrigger>
+                                                                </div>
+
                                                                 <CollapsibleContent>
-                                                                    <div className="mt-2 space-y-1.5 pl-6 border-l-2 border-muted">
+                                                                    <div className="mt-2 space-y-1.5 pl-2 sm:pl-6 border-l-2 border-muted">
                                                                         {settlementGroup.settlements.map((settlement) => (
                                                                             <div key={settlement.id} className="flex items-center justify-between gap-2 py-1.5 text-sm">
                                                                                 <div className="min-w-0 flex-1">
-                                                                                    <span className="text-muted-foreground text-xs">
-                                                                                        {settlement.is_monthly && settlement.deadline ? (
-                                                                                            <span className="flex items-center gap-1 text-orange-600 dark:text-orange-400">
-                                                                                                <Clock className="w-3 h-3" />
-                                                                                                Due {new Date(settlement.deadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                                                                                            </span>
-                                                                                        ) : (
-                                                                                            new Date(settlement.expense_date).toLocaleDateString()
-                                                                                        )}
-                                                                                    </span>
+                                                                                    {/* Render Item Name if grouped by month, otherwise render Date */}
+                                                                                    {settlementGroup.groupType === 'month' ? (
+                                                                                        <span className="font-medium text-xs sm:text-sm block truncate">
+                                                                                            {settlement.expense_description}
+                                                                                        </span>
+                                                                                    ) : (
+                                                                                        <span className="text-muted-foreground text-xs">
+                                                                                            {settlement.is_monthly && settlement.deadline ? (
+                                                                                                <span className="flex items-center gap-1 text-orange-600 dark:text-orange-400">
+                                                                                                    <Clock className="w-3 h-3" />
+                                                                                                    Due {new Date(settlement.deadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                                                                                </span>
+                                                                                            ) : (
+                                                                                                new Date(settlement.expense_date).toLocaleDateString()
+                                                                                            )}
+                                                                                        </span>
+                                                                                    )}
+                                                                                    {/* Secondary Info: Date if Name is primary, or nothing/vice versa */}
+                                                                                    {settlementGroup.groupType === 'month' && (
+                                                                                        <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                                                                            <Clock className="w-3 h-3" />
+                                                                                            Due {new Date(settlement.deadline || settlement.expense_date).toLocaleDateString(undefined, { day: 'numeric' })}
+                                                                                        </span>
+                                                                                    )}
                                                                                 </div>
                                                                                 <div className="flex items-center gap-2">
                                                                                     <span className="font-medium text-xs">₱{settlement.amount.toFixed(0)}</span>
                                                                                     {type === 'payable' ? (
                                                                                         <Button
                                                                                             size="sm"
-                                                                                            variant={settlement.status === 'unconfirmed' ? "outline" : "default"}
+                                                                                            variant={settlement.status === 'unconfirmed' ? "outline" : "secondary"}
                                                                                             disabled={settlement.status === 'unconfirmed'}
                                                                                             onClick={() => openPaymentModal(settlement)}
                                                                                             className="h-6 text-xs px-2"
