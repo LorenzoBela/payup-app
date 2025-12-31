@@ -6,8 +6,8 @@ const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
 const createPrismaClient = () => {
     return new PrismaClient({
         // Minimal logging in production for performance
-        log: process.env.NODE_ENV === "development" 
-            ? ["warn", "error"] 
+        log: process.env.NODE_ENV === "development"
+            ? ["warn", "error"]
             : [],
         // Transaction settings for better performance
         transactionOptions: {

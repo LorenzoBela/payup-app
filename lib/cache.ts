@@ -1,4 +1,88 @@
+import { unstable_cache } from "next/cache";
 import { createClient, RedisClientType } from "redis";
+import { prisma } from "./prisma";
+
+// ============================================
+// Next.js Server-Side Cache (unstable_cache)
+// For request deduplication and SSR caching
+// ============================================
+
+// Cache team data for 60 seconds (server-side)
+export const getCachedTeam = unstable_cache(
+    async (teamId: string) => {
+        return prisma.team.findUnique({
+            where: { id: teamId },
+            select: {
+                id: true,
+                name: true,
+                code: true,
+                created_at: true,
+                archived_at: true,
+            },
+        });
+    },
+    ["team"],
+    { revalidate: 60, tags: ["team"] }
+);
+
+// Cache user data for 60 seconds (server-side)
+export const getCachedUser = unstable_cache(
+    async (userId: string) => {
+        return prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+                gcash_number: true,
+            },
+        });
+    },
+    ["user"],
+    { revalidate: 60, tags: ["user"] }
+);
+
+// Cache team members for 30 seconds (server-side)
+export const getCachedTeamMembersList = unstable_cache(
+    async (teamId: string) => {
+        return prisma.teamMember.findMany({
+            where: { team_id: teamId },
+            select: {
+                id: true,
+                user_id: true,
+                role: true,
+                joined_at: true,
+                user: {
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                    },
+                },
+            },
+        });
+    },
+    ["team-members"],
+    { revalidate: 30, tags: ["team-members"] }
+);
+
+// Cache user role for 2 minutes (rarely changes, server-side)
+export const getCachedUserRole = unstable_cache(
+    async (userId: string) => {
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { role: true },
+        });
+        return user?.role ?? null;
+    },
+    ["user-role"],
+    { revalidate: 120, tags: ["user-role"] }
+);
+
+// ============================================
+// Redis Cache Layer (for client-side & API)
+// ============================================
 
 // Redis client singleton
 let redis: RedisClientType | null = null;
@@ -131,14 +215,14 @@ export async function cached<T>(
     // Fallback: In-memory cache (works without Redis)
     const now = Date.now();
     const memoryCacheEntry = memoryCache.get(key);
-    
+
     if (memoryCacheEntry && memoryCacheEntry.expiresAt > now) {
         return JSON.parse(memoryCacheEntry.value) as T;
     }
 
     // Cache miss - fetch and store in memory
     const data = await fetcher();
-    
+
     memoryCache.set(key, {
         value: JSON.stringify(data),
         expiresAt: now + (ttlSeconds * 1000)

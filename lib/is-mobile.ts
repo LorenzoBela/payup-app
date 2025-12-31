@@ -1,15 +1,17 @@
+import { cache } from "react";
 import { headers } from "next/headers";
 
 /**
  * Server-side mobile detection utility
  * Detects mobile devices from user-agent string
+ * Cached per-request to avoid redundant header parsing
  */
-export async function isMobileDevice(): Promise<boolean> {
+export const isMobileDevice = cache(async (): Promise<boolean> => {
   const headersList = await headers();
   const userAgent = headersList.get("user-agent") || "";
-  
+
   return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
-}
+});
 
 /**
  * Get device type from user-agent
@@ -17,15 +19,15 @@ export async function isMobileDevice(): Promise<boolean> {
 export async function getDeviceType(): Promise<"mobile" | "tablet" | "desktop"> {
   const headersList = await headers();
   const userAgent = headersList.get("user-agent") || "";
-  
+
   if (/iPhone|iPod|Android.*Mobile/i.test(userAgent)) {
     return "mobile";
   }
-  
+
   if (/iPad|Android(?!.*Mobile)/i.test(userAgent)) {
     return "tablet";
   }
-  
+
   return "desktop";
 }
 
@@ -35,7 +37,7 @@ export async function getDeviceType(): Promise<"mobile" | "tablet" | "desktop"> 
 export async function isIOS(): Promise<boolean> {
   const headersList = await headers();
   const userAgent = headersList.get("user-agent") || "";
-  
+
   return /iPhone|iPad|iPod/i.test(userAgent);
 }
 
@@ -45,7 +47,7 @@ export async function isIOS(): Promise<boolean> {
 export async function isAndroid(): Promise<boolean> {
   const headersList = await headers();
   const userAgent = headersList.get("user-agent") || "";
-  
+
   return /Android/i.test(userAgent);
 }
 
@@ -54,7 +56,7 @@ export async function isAndroid(): Promise<boolean> {
  */
 export async function getScreenSize(): Promise<"small" | "medium" | "large"> {
   const deviceType = await getDeviceType();
-  
+
   // Default sizes based on device type
   if (deviceType === "mobile") return "small";
   if (deviceType === "tablet") return "medium";

@@ -184,5 +184,6 @@ model SettlementAgreement {
   @@index([team_id, status])
   @@index([proposer_id, status])
   @@index([responder_id, status])
+  @@index([proposer_id, responder_id]) // User pair agreements lookup
   @@map("settlement_agreements")
 }
