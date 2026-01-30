@@ -155,6 +155,7 @@ const ExpenseGridCard = memo(function ExpenseGridCard({
   isAdmin,
   canEdit,
   onRefresh,
+  onHover,
 }: {
   expense: ExpenseData;
   isDeleting: boolean;
@@ -168,6 +169,7 @@ const ExpenseGridCard = memo(function ExpenseGridCard({
   isAdmin: boolean;
   canEdit: boolean;
   onRefresh: () => void;
+  onHover?: () => void;
 }) {
   const paidCount = expense.settlements.filter(s => s.status === "paid").length;
   const totalMembers = expense.settlements.length;
@@ -178,6 +180,7 @@ const ExpenseGridCard = memo(function ExpenseGridCard({
       <div
         className="bg-gradient-to-br from-card to-muted/20 border border-border rounded-xl p-4 hover:shadow-lg hover:border-primary/30 transition-all duration-300 h-full flex flex-col cursor-pointer"
         onClick={onCardClick}
+        onMouseEnter={onHover}
       >
         {/* Header */}
         <div className="flex items-start justify-between mb-3">
@@ -397,6 +400,10 @@ const ExpenseGridItem = memo(function ExpenseGridItem({
     router.push(`/dashboard/expenses/${expense.id}`);
   };
 
+  const handleHover = () => {
+    router.prefetch(`/dashboard/expenses/${expense.id}`);
+  };
+
   return (
     <ExpenseGridCard
       expense={expense}
@@ -411,6 +418,7 @@ const ExpenseGridItem = memo(function ExpenseGridItem({
       isAdmin={isAdmin}
       canEdit={canEdit}
       onRefresh={onRefresh}
+      onHover={handleHover}
     />
   );
 });
@@ -463,6 +471,10 @@ const ExpenseListItem = memo(function ExpenseListItem({
     router.push(`/dashboard/expenses/${expense.id}`);
   };
 
+  const handleHover = () => {
+    router.prefetch(`/dashboard/expenses/${expense.id}`);
+  };
+
   const paidCount = expense.settlements.filter(s => s.status === "paid").length;
   const totalMembers = expense.settlements.length;
 
@@ -471,6 +483,7 @@ const ExpenseListItem = memo(function ExpenseListItem({
       <div
         className="p-4 border border-border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
         onClick={handleCardClick}
+        onMouseEnter={handleHover}
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -770,7 +783,7 @@ export function ExpenseList({ teamId, refreshKey }: ExpenseListProps) {
           <CardDescription>Track and manage group expenses</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
             {[...Array(6)].map((_, i) => (
               <div key={i} className="h-48 rounded-xl border border-border bg-muted/20 animate-pulse" />
             ))}
@@ -898,7 +911,7 @@ export function ExpenseList({ teamId, refreshKey }: ExpenseListProps) {
             )}
           </div>
         ) : viewMode === "grid" ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
             {filteredExpenses.map((expense) => (
               <ExpenseGridItem
                 key={expense.id}

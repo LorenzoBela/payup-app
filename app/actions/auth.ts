@@ -1,12 +1,13 @@
 "use server";
 
-import { currentUser } from "@clerk/nextjs/server";
+import { currentUser, clerkClient } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 
 /**
- * Syncs the current Clerk user to Supabase database.
- * SECURITY: This function NEVER modifies the 'role' field.
+ * Syncs the current Clerk user to Supabase database and syncs role to Clerk metadata.
+ * SECURITY: This function NEVER modifies the 'role' field in the database.
  * Role can only be changed directly in Supabase Dashboard.
+ * Role IS synced to Clerk's publicMetadata for fast access via session claims.
  */
 export async function syncUserToSupabase() {
     try {
@@ -30,7 +31,7 @@ export async function syncUserToSupabase() {
         // IMPORTANT: We explicitly DO NOT include 'role' in create/update
         // New users automatically get 'Client' role via database default
         // Role can ONLY be changed via Supabase Dashboard Editor
-        await prisma.user.upsert({
+        const dbUser = await prisma.user.upsert({
             where: { id: user.id },
             update: {
                 // Only update name and email - NEVER touch role
@@ -43,7 +44,20 @@ export async function syncUserToSupabase() {
                 email: email || "",
                 // role is intentionally omitted - uses database default 'Client'
             },
+            select: { role: true }, // Get the role to sync to Clerk
         });
+
+        // Sync role to Clerk's publicMetadata for fast access via sessionClaims
+        // This eliminates the need for /api/user/role DB calls on every page load
+        const currentRole = user.publicMetadata?.role as string | undefined;
+        if (currentRole !== dbUser.role) {
+            const client = await clerkClient();
+            await client.users.updateUserMetadata(user.id, {
+                publicMetadata: {
+                    role: dbUser.role,
+                },
+            });
+        }
 
         return { success: true };
     } catch (error) {

@@ -101,7 +101,7 @@ export default function LogsPage() {
                 <CardContent>
                     {isLoading ? (
                         viewMode === "grid" ? (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
                                 {[...Array(6)].map((_, i) => (
                                     <div key={i} className="h-28 rounded-lg border bg-muted/20 animate-pulse" />
                                 ))}
@@ -128,7 +128,7 @@ export default function LogsPage() {
                             ) : viewMode === "grid" ? (
                                 /* Grid View - Minimalist */
                                 <>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
                                         {logs.map((log) => (
                                             <div
                                                 key={log.id}

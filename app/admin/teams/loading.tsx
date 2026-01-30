@@ -27,7 +27,7 @@ export default function AdminTeamsLoading() {
             </div>
 
             {/* Teams grid */}
-            <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
                 {[...Array(6)].map((_, i) => (
                     <Card key={i}>
                         <CardHeader className="p-4">

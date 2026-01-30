@@ -138,7 +138,7 @@ export default function MembersPage() {
                 <CardContent>
                     {membersLoading ? (
                         viewMode === "grid" ? (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
                                 {[...Array(6)].map((_, i) => (
                                     <div key={i} className="h-40 rounded-lg border bg-muted/20 animate-pulse" />
                                 ))}
@@ -165,7 +165,7 @@ export default function MembersPage() {
                         </p>
                     ) : viewMode === "grid" ? (
                         /* Grid View - Minimalist */
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
                             {filteredMembers.map((member) => (
                                 <div
                                     key={member.id}

@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import DashboardLoading from "./loading";
 import { createTeam, joinTeam } from "../actions/teams";
 import { toast } from "sonner";
 import { useUser } from "@clerk/nextjs";
@@ -105,12 +106,9 @@ export default function DashboardPage() {
     }
   };
 
-  if (!isLoaded || isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-[50vh]">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    );
+  // Show skeleton shell for initial load (instant feedback)
+  if (!isLoaded || (isLoading && !selectedTeam)) {
+    return <DashboardLoading />;
   }
 
   if (!user) return null;
