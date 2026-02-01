@@ -2177,3 +2177,74 @@ export async function getSettlementAgreements(teamId: string): Promise<{
         return { pending: [], history: [] };
     }
 }
+
+export async function getMonthlyExpenseHistory(teamId: string) {
+    try {
+        const { userId } = await auth();
+        if (!userId) return [];
+
+        // Group by Month (using Postgres TO_CHAR)
+        // Fetch last 6 months
+        const result = await prisma.$queryRaw<Array<{
+            month: string;
+            total: number | bigint;
+        }>>`
+            SELECT
+                TO_CHAR(e.created_at, 'Mon') as month,
+                TO_CHAR(e.created_at, 'YYYY-MM') as sort_key,
+                SUM(e.amount) as total
+            FROM expenses e
+            WHERE e.team_id = ${teamId}
+              AND e.deleted_at IS NULL
+              AND e.parent_expense_id IS NULL
+              AND e.created_at >= NOW() - INTERVAL '6 months'
+            GROUP BY 1, 2
+            ORDER BY 2 ASC
+         `;
+
+        return result.map(r => ({
+            month: r.month,
+            total: Number(r.total)
+        }));
+
+    } catch (error) {
+        console.error("Error fetching monthly history:", error);
+        return [];
+    }
+}
+
+export async function getMemberExpenseStats(teamId: string) {
+    try {
+        const { userId } = await auth();
+        if (!userId) return [];
+
+        const result = await prisma.expense.groupBy({
+            by: ['paid_by'],
+            where: {
+                team_id: teamId,
+                deleted_at: null,
+                parent_expense_id: null,
+            },
+            _sum: { amount: true },
+            orderBy: {
+                _sum: { amount: 'desc' },
+            },
+        });
+
+        // Fetch user names
+        const userIds = result.map(r => r.paid_by);
+        const users = await prisma.user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, name: true }
+        });
+        const userMap = new Map(users.map(u => [u.id, u.name]));
+
+        return result.map(r => ({
+            name: userMap.get(r.paid_by) || "Unknown",
+            amount: r._sum.amount || 0
+        }));
+    } catch (error) {
+        console.error("Error fetching member stats:", error);
+        return [];
+    }
+}
